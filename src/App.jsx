@@ -37,6 +37,12 @@ import {
 } from "@phosphor-icons/react";
 import { ToolButton, Modal, PageCanvas, SignaturePad } from "./components.jsx";
 import {
+  parseTerms,
+  scanPdfWords,
+  applyOcrMatches,
+  matchAnnotation,
+} from "./ocr-engine.js";
+import {
   loadSource,
   sourcePages,
   exportPdf,
@@ -98,7 +104,7 @@ function annotationHit(a, p, page) {
   );
 }
 
-export default function App({ pdfjs }) {
+export default function App({ pdfjs, createOcrWorker }) {
   const [pages, setPages] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [activeId, setActiveId] = useState(null);
@@ -111,6 +117,14 @@ export default function App({ pdfjs }) {
   const [modal, setModal] = useState(null);
   const [compression, setCompression] = useState(150);
   const [redactionScope, setRedactionScope] = useState("current");
+  const [redactionMethods, setRedactionMethods] = useState({
+    region: true,
+    ocr: false,
+  });
+  const [ocrTerms, setOcrTerms] = useState("");
+  const [ocrReview, setOcrReview] = useState(null);
+  const [ocrPreviewId, setOcrPreviewId] = useState(null);
+  const ocrAbort = useRef(null);
   const [busy, setBusy] = useState("");
   const [toast, setToast] = useState(null);
   const [dropOver, setDropOver] = useState(false);
@@ -314,7 +328,7 @@ export default function App({ pdfjs }) {
           type: "notice",
           title: "복사할 텍스트가 없습니다",
           message:
-            "이 페이지는 이미지로 스캔된 PDF일 수 있습니다. 현재 버전은 OCR을 지원하지 않습니다. 텍스트가 포함된 PDF를 선택해 주세요.",
+            "이 페이지는 이미지로 스캔된 PDF일 수 있습니다. 텍스트 복사는 PDF 자체에 포함된 글자에 적용됩니다. 스캔 문서의 단어를 가리려면 개인정보 가리기에서 브라우저 OCR을 선택해 주세요.",
         });
         return;
       }
@@ -332,6 +346,87 @@ export default function App({ pdfjs }) {
       setBusy("");
     }
   };
+  const beginRegion = () => {
+    if (redactionScope === "selected" && !selected.has(page.id))
+      setActiveId(targets[0].id);
+    setTool("redact");
+    setModal(null);
+    setOcrReview(null);
+  };
+  const startOcr = async () => {
+    if (operation.current) return;
+    const terms = parseTerms(ocrTerms);
+    const scanPages =
+      redactionScope === "all"
+        ? pages
+        : redactionScope === "selected"
+          ? targets
+          : [page];
+    if (!terms.length || !scanPages.length) return;
+    if (terms.length > 100) {
+      notify("한 번에 100개 이하의 단어를 입력해 주세요.", true);
+      return;
+    }
+    operation.current = true;
+    const controller = new AbortController();
+    ocrAbort.current = controller;
+    setBusy("한국어·영어 OCR을 준비하는 중…");
+    setOcrReview(null);
+    try {
+      const result = await scanPdfWords(scanPages, terms, {
+        createWorker: createOcrWorker,
+        signal: controller.signal,
+        onProgress: ({ stage, page: number, total, message }) => {
+          if (controller.signal.aborted) return;
+          if (
+            stage === "initializing" ||
+            (stage === "engine" && message.status !== "recognizing text")
+          ) {
+            setBusy(
+              "한국어·영어 OCR 모델을 준비하는 중… 첫 사용에는 잠시 시간이 걸립니다.",
+            );
+          } else
+            setBusy(
+              `브라우저 OCR · ${number} / ${total}페이지${message?.progress != null ? ` · ${Math.round(message.progress * 100)}%` : ""}`,
+            );
+        },
+      });
+      setOcrReview({
+        ...result,
+        selected: new Set(result.matches.map((m) => m.id)),
+        continueRegion: redactionMethods.region,
+      });
+      setOcrPreviewId(result.matches[0]?.pageId || scanPages[0].id);
+      setModal({ type: "ocr-review" });
+    } catch (error) {
+      if (error.name === "AbortError")
+        notify("OCR을 취소했습니다. 문서에는 변경 사항이 없습니다.");
+      else
+        notify(
+          "OCR을 실행하지 못했습니다. 모델 다운로드와 브라우저 지원을 확인하고 다시 시도해 주세요.",
+          true,
+        );
+    } finally {
+      ocrAbort.current = null;
+      operation.current = false;
+      setBusy("");
+    }
+  };
+  const acceptOcr = () => {
+    const chosen = ocrReview.matches.filter((m) =>
+      ocrReview.selected.has(m.id),
+    );
+    if (chosen.length) commit(applyOcrMatches(pagesRef.current, chosen));
+    notify(
+      `${chosen.length}곳을 흰색으로 가렸습니다. 인식 누락이 있을 수 있으니 문서를 확인해 주세요.`,
+    );
+    if (ocrReview.continueRegion) beginRegion();
+    else {
+      setTool("move");
+      setModal(null);
+      setOcrReview(null);
+    }
+  };
   const reset = () => {
     setPages([]);
     setSelected(new Set());
@@ -343,6 +438,9 @@ export default function App({ pdfjs }) {
     setDraft(null);
     setSignature(null);
     setRedactionScope("current");
+    setRedactionMethods({ region: true, ocr: false });
+    setOcrTerms("");
+    setOcrReview(null);
     setTool("move");
     setZoom(100);
     setModal(null);
@@ -616,7 +714,10 @@ export default function App({ pdfjs }) {
     return () => document.removeEventListener("keydown", key);
   });
   const closeModal = useCallback(() => {
-    if (!operation.current) setModal(null);
+    if (!operation.current) {
+      setModal(null);
+      setOcrReview(null);
+    }
   }, []);
   const originalBytes = [...new Set(pages.map((p) => p.source))].reduce(
     (sum, s) => sum + s.bytes.length,
@@ -638,6 +739,22 @@ export default function App({ pdfjs }) {
           annotations: page.annotations.filter((a) => a.id !== draft.id),
         }
       : page;
+  const ocrPreviewPage = pages.find((p) => p.id === ocrPreviewId);
+  const ocrPreview =
+    ocrPreviewPage && ocrReview
+      ? {
+          ...ocrPreviewPage,
+          annotations: [
+            ...ocrPreviewPage.annotations,
+            ...ocrReview.matches
+              .filter(
+                (m) =>
+                  m.pageId === ocrPreviewId && ocrReview.selected.has(m.id),
+              )
+              .map((m) => matchAnnotation(m, ocrPreviewPage, "ocr-preview")),
+          ],
+        }
+      : null;
   void historyVersion;
 
   return (
@@ -1289,6 +1406,16 @@ export default function App({ pdfjs }) {
           <span className="spinner" />
           <span>{busy}</span>
           <small>큰 문서는 시간이 조금 걸릴 수 있어요.</small>
+          {ocrAbort.current && (
+            <ToolButton
+              onClick={() => {
+                ocrAbort.current?.abort();
+                setBusy("OCR을 취소하는 중…");
+              }}
+            >
+              OCR 취소
+            </ToolButton>
+          )}
         </div>
       )}
 
@@ -1298,6 +1425,7 @@ export default function App({ pdfjs }) {
             {
               compress: "용량 줄이기",
               redact: "개인정보 가리기",
+              "ocr-review": "OCR 검색 결과 확인",
               signature: "서명 추가",
               text: "텍스트 추가",
               new: "새 문서 만들기",
@@ -1308,7 +1436,7 @@ export default function App({ pdfjs }) {
           }
           onClose={closeModal}
           busy={!!busy}
-          wide={modal.type === "signature"}
+          wide={modal.type === "signature" || modal.type === "ocr-review"}
         >
           {modal.type === "compress" && (
             <>
@@ -1370,23 +1498,88 @@ export default function App({ pdfjs }) {
                 <ShieldCheck size={30} />
               </div>
               <p className="modal-description">
-                드래그한 영역을 흰색으로 가립니다. 안전한 공유를 위해 저장할 때
-                문서 전체를 새 이미지 PDF로 만듭니다. 저장한 파일에서는 원래
-                글자를 검색하거나 복사할 수 없습니다.
+                지정한 영역이나 검색한 단어를 흰색으로 가립니다. 안전한 공유를
+                위해 저장할 때 문서 전체를 새 이미지 PDF로 만듭니다. 저장한
+                파일에서는 원래 글자를 검색하거나 복사할 수 없습니다.
               </p>
+              <fieldset className="redaction-scope redaction-methods">
+                <legend>가리기 방식 · 함께 선택할 수 있어요</legend>
+                <label
+                  className={`compression-option ${redactionMethods.region ? "selected" : ""}`}
+                >
+                  <input
+                    type="checkbox"
+                    name="redaction-region"
+                    checked={redactionMethods.region}
+                    onChange={(e) =>
+                      setRedactionMethods((old) => ({
+                        ...old,
+                        region: e.target.checked,
+                      }))
+                    }
+                  />
+                  <span>
+                    <strong>영역 지정</strong>
+                    <small>직접 드래그한 위치를 흰색으로 가리기 · 기본값</small>
+                  </span>
+                </label>
+                <label
+                  className={`compression-option ${redactionMethods.ocr ? "selected" : ""}`}
+                >
+                  <input
+                    type="checkbox"
+                    name="redaction-ocr"
+                    checked={redactionMethods.ocr}
+                    onChange={(e) =>
+                      setRedactionMethods((old) => ({
+                        ...old,
+                        ocr: e.target.checked,
+                      }))
+                    }
+                  />
+                  <span>
+                    <strong>브라우저 OCR로 단어 가리기</strong>
+                    <small>한국어·영어 글자를 인식하고 입력한 단어 찾기</small>
+                  </span>
+                </label>
+              </fieldset>
+              {redactionMethods.ocr && (
+                <div className="ocr-word-input">
+                  <label htmlFor="ocr-terms">
+                    가릴 단어 · 줄바꿈 또는 쉼표로 구분
+                  </label>
+                  <textarea
+                    id="ocr-terms"
+                    className="text-editor"
+                    rows="3"
+                    maxLength={5000}
+                    value={ocrTerms}
+                    onChange={(e) => setOcrTerms(e.target.value)}
+                    placeholder={"한성\n한성여자고등학교"}
+                  />
+                  <p className="modal-footnote">
+                    최대 100개. OCR은 오인식·누락이 있을 수 있습니다. 인식된
+                    위치를 확인한 뒤 적용하세요. 문서는 서버로 보내지 않습니다.
+                  </p>
+                </div>
+              )}
               <fieldset className="redaction-scope">
-                <legend>가림 영역을 적용할 페이지</legend>
+                <legend>가리기를 적용할 페이지</legend>
                 {[
                   ["current", "현재 페이지", "지금 보고 있는 한 페이지에 적용"],
                   [
                     "selected",
                     `선택한 페이지 (${selected.size}쪽)`,
-                    "왼쪽 목록에서 선택한 페이지에 같은 위치 적용",
+                    redactionMethods.ocr
+                      ? "선택한 페이지에서 단어 검색 · 지정 영역은 같은 위치 적용"
+                      : "왼쪽 목록에서 선택한 페이지에 같은 위치 적용",
                   ],
                   [
                     "all",
                     `전체 페이지 (${pages.length}쪽)`,
-                    "추가한 모든 PDF의 페이지에 같은 위치 적용",
+                    redactionMethods.ocr
+                      ? "모든 페이지에서 단어 검색 · 지정 영역은 같은 위치 적용"
+                      : "추가한 모든 PDF의 페이지에 같은 위치 적용",
                   ],
                 ].map(([value, title, description]) => (
                   <label
@@ -1408,11 +1601,19 @@ export default function App({ pdfjs }) {
                   </label>
                 ))}
               </fieldset>
-              <p className="modal-footnote">
-                페이지 크기가 다르면 같은 비율의 위치에 적용됩니다. 같은 서식의
-                페이지만 선택하고, 저장 전 가려진 위치를 확인하세요. 여러 영역을
-                이어서 지정할 수 있습니다.
-              </p>
+              {redactionMethods.region && (
+                <p className="modal-footnote">
+                  페이지 크기가 다르면 같은 비율의 위치에 적용됩니다. 같은
+                  서식의 페이지만 선택하고, 저장 전 가려진 위치를 확인하세요.
+                  여러 영역을 이어서 지정할 수 있습니다.
+                </p>
+              )}
+              {redactionMethods.region && redactionMethods.ocr && (
+                <p className="inline-notice">
+                  OCR 결과를 확인해 적용한 뒤, 추가로 가릴 영역을 직접 지정할 수
+                  있습니다. 두 방식의 가림 영역은 함께 저장됩니다.
+                </p>
+              )}
               <div className="inline-notice">
                 <LockKey size={18} />
                 <span>
@@ -1425,15 +1626,111 @@ export default function App({ pdfjs }) {
                 <ToolButton
                   icon={ShieldCheck}
                   className="primary"
-                  disabled={redactionScope === "selected" && !selected.size}
-                  onClick={() => {
-                    if (redactionScope === "selected" && !selected.has(page.id))
-                      setActiveId(targets[0].id);
-                    setTool("redact");
-                    setModal(null);
-                  }}
+                  disabled={
+                    (!redactionMethods.region && !redactionMethods.ocr) ||
+                    (redactionScope === "selected" && !selected.size) ||
+                    (redactionMethods.ocr && !parseTerms(ocrTerms).length)
+                  }
+                  onClick={redactionMethods.ocr ? startOcr : beginRegion}
                 >
-                  영역 지정
+                  {redactionMethods.ocr ? "OCR로 단어 찾기" : "영역 지정"}
+                </ToolButton>
+              </div>
+            </>
+          )}
+          {modal.type === "ocr-review" && ocrReview && (
+            <>
+              <p className="modal-description">
+                {ocrReview.scannedPages}페이지에서 {ocrReview.matches.length}
+                곳을 찾았습니다. 초록색 표시를 확인하고 가릴 결과를 선택하세요.
+                검색되지 않은 개인정보가 있을 수 있으므로 적용 후에도 문서를
+                확인하세요.
+              </p>
+              {ocrReview.matches.length ? (
+                <div className="ocr-review-layout">
+                  <div className="ocr-result-list">
+                    <button
+                      className="text-button"
+                      onClick={() =>
+                        setOcrReview((old) => ({
+                          ...old,
+                          selected:
+                            old.selected.size === old.matches.length
+                              ? new Set()
+                              : new Set(old.matches.map((m) => m.id)),
+                        }))
+                      }
+                    >
+                      {ocrReview.selected.size === ocrReview.matches.length
+                        ? "전체 선택 해제"
+                        : "전체 선택"}
+                    </button>
+                    {ocrReview.matches.map((match) => (
+                      <div
+                        key={match.id}
+                        className={`ocr-result ${match.pageId === ocrPreviewId ? "current" : ""}`}
+                      >
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={ocrReview.selected.has(match.id)}
+                            onChange={() =>
+                              setOcrReview((old) => {
+                                const checked = new Set(old.selected);
+                                checked.has(match.id)
+                                  ? checked.delete(match.id)
+                                  : checked.add(match.id);
+                                return { ...old, selected: checked };
+                              })
+                            }
+                          />
+                          <span>
+                            <strong>{match.term}</strong>
+                            <small>
+                              {pages.findIndex((p) => p.id === match.pageId) +
+                                1}
+                              페이지 · 인식 신뢰도 {match.confidence}%
+                              {match.confidence < 70 ? " · 확인 필요" : ""}
+                            </small>
+                          </span>
+                        </label>
+                        <button
+                          className="text-button"
+                          onClick={() => setOcrPreviewId(match.pageId)}
+                        >
+                          위치 보기
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  {ocrPreview && (
+                    <div className="ocr-preview">
+                      <PageCanvas page={ocrPreview} width={270} />
+                      <small>
+                        초록색은 확인용 표시입니다. 저장할 때는 흰색으로
+                        가립니다.
+                      </small>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="inline-notice">
+                  입력한 단어를 찾지 못했습니다. 철자나 인식 상태를 확인해 다시
+                  검색하거나 영역 지정으로 가려 주세요.
+                </div>
+              )}
+              <div className="modal-footer">
+                <ToolButton onClick={closeModal}>취소</ToolButton>
+                <ToolButton
+                  className="primary"
+                  disabled={
+                    !ocrReview.selected.size && !ocrReview.continueRegion
+                  }
+                  onClick={acceptOcr}
+                >
+                  {ocrReview.continueRegion
+                    ? `선택한 ${ocrReview.selected.size}곳 적용 후 영역 지정`
+                    : `선택한 ${ocrReview.selected.size}곳 가리기`}
                 </ToolButton>
               </div>
             </>

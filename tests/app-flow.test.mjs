@@ -129,7 +129,7 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
   const { default: React, act } = await import("react");
   const { createRoot } = await import("react-dom/client");
   const server = await createServer({
-    server: { middlewareMode: true },
+    server: { middlewareMode: true, hmr: false, watch: null },
     appType: "custom",
   });
   const { default: App } = await server.ssrLoadModule("/src/App.jsx");
@@ -164,7 +164,37 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
   }
   try {
     await act(async () =>
-      root.render(React.createElement(App, { pdfjs: renderer })),
+      root.render(
+        React.createElement(App, {
+          pdfjs: renderer,
+          createOcrWorker: async () => ({
+            recognize: async () => ({
+              data: {
+                blocks: [
+                  {
+                    paragraphs: [
+                      {
+                        lines: [
+                          {
+                            words: [
+                              {
+                                text: "SCHOOL",
+                                confidence: 90,
+                                bbox: { x0: 40, y0: 40, x1: 200, y1: 80 },
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            }),
+            terminate: async () => {},
+          }),
+        }),
+      ),
     );
     assert.match(document.body.textContent, /수업 준비가/);
     await click("파일 없이 먼저 둘러보기");
@@ -346,6 +376,45 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     await click("새로 만들기");
     await click("새로 시작");
     assert.equal(document.querySelectorAll(".thumbnail").length, 0);
+    await click("파일 없이 먼저 둘러보기");
+    for (let i = 0; i < 20 && document.querySelector(".busy-indicator"); i++)
+      await settle();
+    await click("개인정보 가리기");
+    assert.equal(
+      document.querySelector('input[name="redaction-region"]').checked,
+      true,
+    );
+    assert.equal(
+      document.querySelector('input[name="redaction-ocr"]').checked,
+      false,
+    );
+    await act(async () =>
+      document.querySelector('input[name="redaction-ocr"]').click(),
+    );
+    await act(async () => {
+      const input = document.getElementById("ocr-terms");
+      Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        "value",
+      ).set.call(input, "SCHOOL");
+      input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await click("OCR로 단어 찾기");
+    for (let i = 0; i < 20 && document.querySelector(".busy-indicator"); i++)
+      await settle();
+    assert.equal(
+      document.querySelector("[role=dialog] h2").textContent,
+      "OCR 검색 결과 확인",
+    );
+    assert.equal(document.querySelectorAll(".ocr-result").length, 1);
+    await click("선택한 1곳 적용 후 영역 지정");
+    assert.ok(
+      document.querySelector(".tool-redact"),
+      "combined mode continues manual redaction",
+    );
+    assert.equal(document.querySelectorAll(".annotation-indicator").length, 1);
+    await click("새로 만들기");
+    await click("새로 시작");
     assert.deepEqual(errors, [], "no React runtime errors");
   } finally {
     await act(async () => root.unmount());

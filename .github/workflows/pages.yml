@@ -25,6 +25,10 @@ jobs:
           cache: npm
       - name: Install dependencies and prepare local PDF assets
         run: npm ci --no-audit --no-fund
+      - name: Install fonts for Korean OCR tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
       - name: Run functional tests
         run: npm test
       - name: Build GitHub Pages site

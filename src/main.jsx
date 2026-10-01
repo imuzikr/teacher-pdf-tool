@@ -17,4 +17,22 @@ const renderer = {
       wasmUrl: `${pdfAssets}wasm/`,
     }),
 };
-createRoot(document.getElementById("root")).render(<App pdfjs={renderer} />);
+async function createOcrWorker(logger) {
+  const { createWorker } = await import("tesseract.js");
+  const root = new URL(
+    `${import.meta.env.BASE_URL}ocr-assets/`,
+    window.location.href,
+  ).href;
+  return createWorker(["kor", "eng"], 1, {
+    workerPath: `${root}worker.min.js`,
+    corePath: `${root}core`,
+    langPath: `${root}lang`,
+    workerBlobURL: false,
+    gzip: true,
+    logger,
+    errorHandler: () => {},
+  });
+}
+createRoot(document.getElementById("root")).render(
+  <App pdfjs={renderer} createOcrWorker={createOcrWorker} />,
+);

@@ -162,6 +162,14 @@ export async function drawAnnotations(
           a.width * w,
           a.height * h,
         );
+      } else if (a.type === "ocr-preview") {
+        ctx.fillStyle = "#087f5b";
+        ctx.globalAlpha = 0.12;
+        ctx.fillRect(a.x * w, a.y * h, a.width * w, a.height * h);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = "#087f5b";
+        ctx.lineWidth = Math.max(1, w / 600);
+        ctx.strokeRect(a.x * w, a.y * h, a.width * w, a.height * h);
       } else if (a.type === "redact") {
         ctx.fillStyle = a.color || "#ffffff";
         ctx.globalAlpha = 1;
