@@ -408,8 +408,10 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
         .querySelector('input[name="region-mode"][value="manual"]')
         .click(),
     );
-    await act(async () =>
-      document.querySelector('input[name="region-scope"][value="all"]').click(),
+    assert.equal(
+      document.querySelector('input[name="region-scope"]'),
+      null,
+      "manual mode always allows the full document",
     );
     assert.equal(
       document.querySelector('input[name="ocr-scope"][value="current"]')
@@ -481,12 +483,26 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
         .querySelector('input[name="region-mode"][value="single"]')
         .click(),
     );
+    assert.equal(
+      document.querySelector('input[name="region-scope"]'),
+      null,
+      "single mode needs no page range restriction",
+    );
     await click("영역 지정");
     await drawMask();
     assert.equal(
       document.querySelectorAll(".annotation-indicator").length,
       2,
       "single mode keeps masks on the active page",
+    );
+    await act(async () =>
+      document.querySelectorAll(".thumbnail-open")[2].click(),
+    );
+    await drawMask();
+    assert.equal(
+      document.querySelectorAll(".annotation-indicator").length,
+      3,
+      "single mode can edit another page without reopening settings",
     );
     await click("새로 만들기");
     await click("새로 시작");

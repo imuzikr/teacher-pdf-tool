@@ -117,7 +117,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   const [modal, setModal] = useState(null);
   const [compression, setCompression] = useState(150);
   const [regionMode, setRegionMode] = useState("single");
-  const [regionScope, setRegionScope] = useState("selected");
+  const [regionScope, setRegionScope] = useState("all");
   const [regionSession, setRegionSession] = useState(null);
   const [ocrScope, setOcrScope] = useState("current");
   const [redactionMethods, setRedactionMethods] = useState({
@@ -351,11 +351,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   };
   const beginRegion = () => {
     const regionPages =
-      regionMode === "single"
-        ? [page]
-        : regionScope === "all"
-          ? pages
-          : targets;
+      regionMode !== "repeat" || regionScope === "all" ? pages : targets;
     if (!regionPages.length) return;
     const ids = regionPages.map((p) => p.id);
     setRegionSession({ mode: regionMode, ids });
@@ -445,7 +441,7 @@ export default function App({ pdfjs, createOcrWorker }) {
     setDraft(null);
     setSignature(null);
     setRegionMode("single");
-    setRegionScope("selected");
+    setRegionScope("all");
     setRegionSession(null);
     setOcrScope("current");
     setRedactionMethods({ region: true, ocr: false });
@@ -1618,7 +1614,7 @@ export default function App({ pdfjs, createOcrWorker }) {
                       </label>
                     ))}
                   </fieldset>
-                  {regionMode !== "single" && (
+                  {regionMode === "repeat" && (
                     <fieldset
                       className="redaction-scope region-targets"
                       disabled={!redactionMethods.region}
@@ -1659,7 +1655,7 @@ export default function App({ pdfjs, createOcrWorker }) {
                       ? "같은 서식의 페이지에 사용하세요. 크기가 다르면 같은 비율의 위치에 적용됩니다. 저장 전 가린 위치를 확인하세요."
                       : regionMode === "manual"
                         ? "이전·다음 작업 페이지로 이동해 각각 가리세요. 다른 페이지에 영역이 자동 복사되지 않습니다."
-                        : "다른 페이지를 작업하려면 가리기 설정에서 다시 선택하세요."}
+                        : "전체 문서를 자유롭게 이동하며 현재 페이지에만 영역을 지정합니다."}
                   </p>
                 </section>
                 <section
@@ -1755,7 +1751,7 @@ export default function App({ pdfjs, createOcrWorker }) {
                   disabled={
                     (!redactionMethods.region && !redactionMethods.ocr) ||
                     (redactionMethods.region &&
-                      regionMode !== "single" &&
+                      regionMode === "repeat" &&
                       regionScope === "selected" &&
                       !selected.size) ||
                     (redactionMethods.ocr &&
