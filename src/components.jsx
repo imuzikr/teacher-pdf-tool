@@ -31,6 +31,7 @@ export function Modal({
   children,
   onClose,
   wide = false,
+  columns = false,
   busy = false,
 }) {
   const ref = useRef(null);
@@ -72,7 +73,7 @@ export function Modal({
     >
       <section
         ref={ref}
-        className={`modal ${wide ? "wide" : ""}`}
+        className={`modal ${wide ? "wide" : ""} ${columns ? "columns" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"

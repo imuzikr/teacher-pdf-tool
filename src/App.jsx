@@ -116,7 +116,10 @@ export default function App({ pdfjs, createOcrWorker }) {
   const [fontSize, setFontSize] = useState(0.025);
   const [modal, setModal] = useState(null);
   const [compression, setCompression] = useState(150);
-  const [redactionScope, setRedactionScope] = useState("current");
+  const [regionMode, setRegionMode] = useState("single");
+  const [regionScope, setRegionScope] = useState("selected");
+  const [regionSession, setRegionSession] = useState(null);
+  const [ocrScope, setOcrScope] = useState("current");
   const [redactionMethods, setRedactionMethods] = useState({
     region: true,
     ocr: false,
@@ -347,8 +350,16 @@ export default function App({ pdfjs, createOcrWorker }) {
     }
   };
   const beginRegion = () => {
-    if (redactionScope === "selected" && !selected.has(page.id))
-      setActiveId(targets[0].id);
+    const regionPages =
+      regionMode === "single"
+        ? [page]
+        : regionScope === "all"
+          ? pages
+          : targets;
+    if (!regionPages.length) return;
+    const ids = regionPages.map((p) => p.id);
+    setRegionSession({ mode: regionMode, ids });
+    if (!ids.includes(page.id)) setActiveId(ids[0]);
     setTool("redact");
     setModal(null);
     setOcrReview(null);
@@ -357,11 +368,7 @@ export default function App({ pdfjs, createOcrWorker }) {
     if (operation.current) return;
     const terms = parseTerms(ocrTerms);
     const scanPages =
-      redactionScope === "all"
-        ? pages
-        : redactionScope === "selected"
-          ? targets
-          : [page];
+      ocrScope === "all" ? pages : ocrScope === "selected" ? targets : [page];
     if (!terms.length || !scanPages.length) return;
     if (terms.length > 100) {
       notify("한 번에 100개 이하의 단어를 입력해 주세요.", true);
@@ -437,7 +444,10 @@ export default function App({ pdfjs, createOcrWorker }) {
     setDirty(false);
     setDraft(null);
     setSignature(null);
-    setRedactionScope("current");
+    setRegionMode("single");
+    setRegionScope("selected");
+    setRegionSession(null);
+    setOcrScope("current");
     setRedactionMethods({ region: true, ocr: false });
     setOcrTerms("");
     setOcrReview(null);
@@ -489,7 +499,19 @@ export default function App({ pdfjs, createOcrWorker }) {
       });
     else setSelected(new Set([p.id]));
   };
+  const navigateRegion = (delta) => {
+    const id = regionSession?.ids[regionSession.ids.indexOf(activeId) + delta];
+    if (!id) return;
+    setActiveId(id);
+    setDraft(null);
+    pointer.current = null;
+    stage.current?.scrollTo({ top: 0, left: 0 });
+  };
   const navigate = (delta) => {
+    if (tool === "redact" && regionSession?.mode === "manual") {
+      navigateRegion(delta);
+      return;
+    }
     const next = pages[activeIndex + delta];
     if (!next) return;
     setActiveId(next.id);
@@ -508,8 +530,15 @@ export default function App({ pdfjs, createOcrWorker }) {
   };
   const pointerDown = (e) => {
     if (operation.current || !page || e.button !== 0) return;
-    if (tool === "redact" && redactionScope === "selected" && !selected.size) {
-      notify("가림 영역을 적용할 페이지를 먼저 선택해 주세요.", true);
+    if (
+      tool === "redact" &&
+      regionSession &&
+      !regionSession.ids.includes(page.id)
+    ) {
+      notify(
+        "영역 작업에 포함된 페이지를 선택하거나 가리기 설정을 다시 열어 주세요.",
+        true,
+      );
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -582,11 +611,7 @@ export default function App({ pdfjs, createOcrWorker }) {
       origin: p,
       reference: page,
       targetIds: new Set(
-        redactionScope === "all"
-          ? pages.map((p) => p.id)
-          : redactionScope === "selected"
-            ? [...selected]
-            : [page.id],
+        regionSession?.mode === "repeat" ? regionSession.ids : [page.id],
       ),
     };
     setDraft(annotation);
@@ -667,7 +692,9 @@ export default function App({ pdfjs, createOcrWorker }) {
         ),
       );
       notify(
-        `${current.targetIds.size}페이지의 같은 위치를 흰색으로 가렸습니다. 저장하면 문서 전체가 이미지 PDF로 변환됩니다.`,
+        current.targetIds.size > 1
+          ? `${current.targetIds.size}페이지의 같은 위치를 흰색으로 가렸습니다.`
+          : "이 페이지의 지정 영역을 흰색으로 가렸습니다.",
       );
     } else updateAnnotations([...page.annotations, a]);
   };
@@ -1092,12 +1119,11 @@ export default function App({ pdfjs, createOcrWorker }) {
                   <ShieldCheck size={16} />
                   <span>
                     가릴 영역을 드래그하세요 ·{" "}
-                    {redactionScope === "all"
-                      ? `전체 ${pages.length}페이지`
-                      : redactionScope === "selected"
-                        ? `선택한 ${selected.size}페이지`
-                        : "현재 페이지"}
-                    에 흰색으로 적용합니다.
+                    {regionSession?.mode === "repeat"
+                      ? `${regionSession.ids.length}페이지의 같은 위치에 적용합니다.`
+                      : regionSession?.mode === "manual"
+                        ? "이 페이지에만 적용합니다. 페이지를 넘겨 각각 지정하세요."
+                        : "선택한 한 페이지에만 적용합니다."}
                   </span>
                 </>
               ) : tool === "signature" ? (
@@ -1113,6 +1139,32 @@ export default function App({ pdfjs, createOcrWorker }) {
                     Shift와 함께 선택할 수 있어요.
                   </span>
                 </>
+              )}
+              {tool === "redact" && regionSession?.mode === "manual" && (
+                <div className="region-navigation">
+                  <button
+                    className="text-button"
+                    disabled={regionSession.ids.indexOf(activeId) <= 0}
+                    onClick={() => navigateRegion(-1)}
+                  >
+                    이전 작업 페이지
+                  </button>
+                  <span>
+                    {Math.max(0, regionSession.ids.indexOf(activeId) + 1)} /{" "}
+                    {regionSession.ids.length}쪽
+                  </span>
+                  <button
+                    className="text-button"
+                    disabled={
+                      regionSession.ids.indexOf(activeId) < 0 ||
+                      regionSession.ids.indexOf(activeId) >=
+                        regionSession.ids.length - 1
+                    }
+                    onClick={() => navigateRegion(1)}
+                  >
+                    다음 작업 페이지
+                  </button>
+                </div>
               )}
               {tool !== "move" && (
                 <button className="text-button" onClick={() => setTool("move")}>
@@ -1437,6 +1489,7 @@ export default function App({ pdfjs, createOcrWorker }) {
           onClose={closeModal}
           busy={!!busy}
           wide={modal.type === "signature" || modal.type === "ocr-review"}
+          columns={modal.type === "redact"}
         >
           {modal.type === "compress" && (
             <>
@@ -1502,112 +1555,185 @@ export default function App({ pdfjs, createOcrWorker }) {
                 위해 저장할 때 문서 전체를 새 이미지 PDF로 만듭니다. 저장한
                 파일에서는 원래 글자를 검색하거나 복사할 수 없습니다.
               </p>
-              <fieldset className="redaction-scope redaction-methods">
-                <legend>가리기 방식 · 함께 선택할 수 있어요</legend>
-                <label
-                  className={`compression-option ${redactionMethods.region ? "selected" : ""}`}
+              <div className="redaction-columns">
+                <section
+                  className="redaction-panel"
+                  aria-labelledby="region-heading"
                 >
-                  <input
-                    type="checkbox"
-                    name="redaction-region"
-                    checked={redactionMethods.region}
-                    onChange={(e) =>
-                      setRedactionMethods((old) => ({
-                        ...old,
-                        region: e.target.checked,
-                      }))
-                    }
-                  />
-                  <span>
-                    <strong>영역 지정</strong>
-                    <small>직접 드래그한 위치를 흰색으로 가리기 · 기본값</small>
-                  </span>
-                </label>
-                <label
-                  className={`compression-option ${redactionMethods.ocr ? "selected" : ""}`}
-                >
-                  <input
-                    type="checkbox"
-                    name="redaction-ocr"
-                    checked={redactionMethods.ocr}
-                    onChange={(e) =>
-                      setRedactionMethods((old) => ({
-                        ...old,
-                        ocr: e.target.checked,
-                      }))
-                    }
-                  />
-                  <span>
-                    <strong>브라우저 OCR로 단어 가리기</strong>
-                    <small>한국어·영어 글자를 인식하고 입력한 단어 찾기</small>
-                  </span>
-                </label>
-              </fieldset>
-              {redactionMethods.ocr && (
-                <div className="ocr-word-input">
-                  <label htmlFor="ocr-terms">
-                    가릴 단어 · 줄바꿈 또는 쉼표로 구분
+                  <label className="redaction-panel-heading">
+                    <input
+                      type="checkbox"
+                      name="redaction-region"
+                      checked={redactionMethods.region}
+                      onChange={(e) =>
+                        setRedactionMethods((old) => ({
+                          ...old,
+                          region: e.target.checked,
+                        }))
+                      }
+                    />
+                    <strong id="region-heading">영역 관리</strong>
+                    <small>기본값</small>
                   </label>
-                  <textarea
-                    id="ocr-terms"
-                    className="text-editor"
-                    rows="3"
-                    maxLength={5000}
-                    value={ocrTerms}
-                    onChange={(e) => setOcrTerms(e.target.value)}
-                    placeholder={"한성\n한성여자고등학교"}
-                  />
+                  <p className="modal-footnote">
+                    드래그한 영역을 흰색으로 가립니다.
+                  </p>
+                  <fieldset
+                    className="redaction-scope"
+                    disabled={!redactionMethods.region}
+                  >
+                    <legend>영역 작업 방식</legend>
+                    {[
+                      [
+                        "single",
+                        "선택한 페이지",
+                        "지금 보고 있는 한 페이지에 직접 영역 지정",
+                      ],
+                      [
+                        "manual",
+                        "여러 페이지",
+                        "페이지를 넘기며 각 페이지에 수작업으로 영역 지정",
+                      ],
+                      [
+                        "repeat",
+                        "반복 페이지",
+                        "한 번 지정한 영역을 여러 페이지의 같은 위치에 자동 적용",
+                      ],
+                    ].map(([value, title, description]) => (
+                      <label
+                        key={value}
+                        className={`compression-option ${regionMode === value ? "selected" : ""}`}
+                      >
+                        <input
+                          type="radio"
+                          name="region-mode"
+                          value={value}
+                          checked={regionMode === value}
+                          onChange={() => setRegionMode(value)}
+                        />
+                        <span>
+                          <strong>{title}</strong>
+                          <small>{description}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </fieldset>
+                  {regionMode !== "single" && (
+                    <fieldset
+                      className="redaction-scope region-targets"
+                      disabled={!redactionMethods.region}
+                    >
+                      <legend>
+                        {regionMode === "manual"
+                          ? "수작업할 페이지"
+                          : "같은 위치를 반복 적용할 페이지"}
+                      </legend>
+                      {[
+                        [
+                          "selected",
+                          `목록에서 선택한 페이지 (${selected.size}쪽)`,
+                        ],
+                        ["all", `전체 페이지 (${pages.length}쪽)`],
+                      ].map(([value, title]) => (
+                        <label
+                          key={value}
+                          className={`compression-option ${regionScope === value ? "selected" : ""}`}
+                        >
+                          <input
+                            type="radio"
+                            name="region-scope"
+                            value={value}
+                            checked={regionScope === value}
+                            disabled={value === "selected" && !selected.size}
+                            onChange={() => setRegionScope(value)}
+                          />
+                          <span>
+                            <strong>{title}</strong>
+                          </span>
+                        </label>
+                      ))}
+                    </fieldset>
+                  )}
+                  <p className="modal-footnote">
+                    {regionMode === "repeat"
+                      ? "같은 서식의 페이지에 사용하세요. 크기가 다르면 같은 비율의 위치에 적용됩니다. 저장 전 가린 위치를 확인하세요."
+                      : regionMode === "manual"
+                        ? "이전·다음 작업 페이지로 이동해 각각 가리세요. 다른 페이지에 영역이 자동 복사되지 않습니다."
+                        : "다른 페이지를 작업하려면 가리기 설정에서 다시 선택하세요."}
+                  </p>
+                </section>
+                <section
+                  className="redaction-panel"
+                  aria-labelledby="ocr-heading"
+                >
+                  <label className="redaction-panel-heading">
+                    <input
+                      type="checkbox"
+                      name="redaction-ocr"
+                      checked={redactionMethods.ocr}
+                      onChange={(e) =>
+                        setRedactionMethods((old) => ({
+                          ...old,
+                          ocr: e.target.checked,
+                        }))
+                      }
+                    />
+                    <strong id="ocr-heading">OCR 관리</strong>
+                  </label>
+                  <p className="modal-footnote">
+                    브라우저에서 한국어·영어를 인식해 단어를 찾습니다.
+                  </p>
+                  <fieldset
+                    className="redaction-scope"
+                    disabled={!redactionMethods.ocr}
+                  >
+                    <legend>단어를 검색할 페이지</legend>
+                    {[
+                      ["current", "현재 페이지"],
+                      [
+                        "selected",
+                        `목록에서 선택한 페이지 (${selected.size}쪽)`,
+                      ],
+                      ["all", `전체 페이지 (${pages.length}쪽)`],
+                    ].map(([value, title]) => (
+                      <label
+                        key={value}
+                        className={`compression-option ${ocrScope === value ? "selected" : ""}`}
+                      >
+                        <input
+                          type="radio"
+                          name="ocr-scope"
+                          value={value}
+                          checked={ocrScope === value}
+                          disabled={value === "selected" && !selected.size}
+                          onChange={() => setOcrScope(value)}
+                        />
+                        <span>
+                          <strong>{title}</strong>
+                        </span>
+                      </label>
+                    ))}
+                    <div className="ocr-word-input">
+                      <label htmlFor="ocr-terms">
+                        가릴 단어 · 줄바꿈 또는 쉼표로 구분
+                      </label>
+                      <textarea
+                        id="ocr-terms"
+                        className="text-editor"
+                        rows="3"
+                        maxLength={5000}
+                        value={ocrTerms}
+                        onChange={(e) => setOcrTerms(e.target.value)}
+                        placeholder={"한성\n한성여자고등학교"}
+                      />
+                    </div>
+                  </fieldset>
                   <p className="modal-footnote">
                     최대 100개. OCR은 오인식·누락이 있을 수 있습니다. 인식된
                     위치를 확인한 뒤 적용하세요. 문서는 서버로 보내지 않습니다.
                   </p>
-                </div>
-              )}
-              <fieldset className="redaction-scope">
-                <legend>가리기를 적용할 페이지</legend>
-                {[
-                  ["current", "현재 페이지", "지금 보고 있는 한 페이지에 적용"],
-                  [
-                    "selected",
-                    `선택한 페이지 (${selected.size}쪽)`,
-                    redactionMethods.ocr
-                      ? "선택한 페이지에서 단어 검색 · 지정 영역은 같은 위치 적용"
-                      : "왼쪽 목록에서 선택한 페이지에 같은 위치 적용",
-                  ],
-                  [
-                    "all",
-                    `전체 페이지 (${pages.length}쪽)`,
-                    redactionMethods.ocr
-                      ? "모든 페이지에서 단어 검색 · 지정 영역은 같은 위치 적용"
-                      : "추가한 모든 PDF의 페이지에 같은 위치 적용",
-                  ],
-                ].map(([value, title, description]) => (
-                  <label
-                    key={value}
-                    className={`compression-option ${redactionScope === value ? "selected" : ""}`}
-                  >
-                    <input
-                      type="radio"
-                      name="redaction-scope"
-                      value={value}
-                      checked={redactionScope === value}
-                      disabled={value === "selected" && !selected.size}
-                      onChange={() => setRedactionScope(value)}
-                    />
-                    <span>
-                      <strong>{title}</strong>
-                      <small>{description}</small>
-                    </span>
-                  </label>
-                ))}
-              </fieldset>
-              {redactionMethods.region && (
-                <p className="modal-footnote">
-                  페이지 크기가 다르면 같은 비율의 위치에 적용됩니다. 같은
-                  서식의 페이지만 선택하고, 저장 전 가려진 위치를 확인하세요.
-                  여러 영역을 이어서 지정할 수 있습니다.
-                </p>
-              )}
+                </section>
+              </div>
               {redactionMethods.region && redactionMethods.ocr && (
                 <p className="inline-notice">
                   OCR 결과를 확인해 적용한 뒤, 추가로 가릴 영역을 직접 지정할 수
@@ -1628,7 +1754,13 @@ export default function App({ pdfjs, createOcrWorker }) {
                   className="primary"
                   disabled={
                     (!redactionMethods.region && !redactionMethods.ocr) ||
-                    (redactionScope === "selected" && !selected.size) ||
+                    (redactionMethods.region &&
+                      regionMode !== "single" &&
+                      regionScope === "selected" &&
+                      !selected.size) ||
+                    (redactionMethods.ocr &&
+                      ocrScope === "selected" &&
+                      !selected.size) ||
                     (redactionMethods.ocr && !parseTerms(ocrTerms).length)
                   }
                   onClick={redactionMethods.ocr ? startOcr : beginRegion}

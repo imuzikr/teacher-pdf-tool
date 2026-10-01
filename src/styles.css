@@ -1722,3 +1722,60 @@ input[type="radio"] {
     max-height: 280px;
   }
 }
+
+.modal.columns {
+  width: 980px;
+}
+.redaction-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin: 24px 0;
+}
+.redaction-panel {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid #dbe5dd;
+  border-radius: 16px;
+  background: #fafcfb;
+}
+.redaction-panel-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  color: #183f32;
+}
+.redaction-panel-heading small {
+  margin-left: auto;
+  font-size: 12px;
+  color: #628474;
+}
+.redaction-panel .modal-footnote {
+  margin: 14px 0;
+}
+.region-targets {
+  margin-top: 20px;
+}
+.redaction-scope:disabled {
+  opacity: 0.5;
+}
+.region-navigation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.document-hint {
+  flex-wrap: wrap;
+}
+@media (max-width: 720px) {
+  .redaction-columns {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .region-navigation {
+    flex-wrap: wrap;
+    margin-left: 0;
+  }
+}

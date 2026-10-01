@@ -253,7 +253,12 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     );
     await act(async () =>
       document
-        .querySelector('input[name="redaction-scope"][value="selected"]')
+        .querySelector('input[name="region-mode"][value="repeat"]')
+        .click(),
+    );
+    await act(async () =>
+      document
+        .querySelector('input[name="region-scope"][value="selected"]')
         .click(),
     );
     await click("영역 지정");
@@ -294,9 +299,7 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     assert.equal(document.querySelectorAll(".annotation-indicator").length, 2);
     await click("개인정보 가리기");
     await act(async () =>
-      document
-        .querySelector('input[name="redaction-scope"][value="all"]')
-        .click(),
+      document.querySelector('input[name="region-scope"][value="all"]').click(),
     );
     await click("영역 지정");
     await act(async () => {
@@ -399,6 +402,21 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       ).set.call(input, "SCHOOL");
       input.dispatchEvent(new window.Event("input", { bubbles: true }));
     });
+    // Region scope must not change the independent OCR scope.
+    await act(async () =>
+      document
+        .querySelector('input[name="region-mode"][value="manual"]')
+        .click(),
+    );
+    await act(async () =>
+      document.querySelector('input[name="region-scope"][value="all"]').click(),
+    );
+    assert.equal(
+      document.querySelector('input[name="ocr-scope"][value="current"]')
+        .checked,
+      true,
+    );
+    assert.ok(document.querySelector(".modal.columns .redaction-columns"));
     await click("OCR로 단어 찾기");
     for (let i = 0; i < 20 && document.querySelector(".busy-indicator"); i++)
       await settle();
@@ -413,6 +431,63 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       "combined mode continues manual redaction",
     );
     assert.equal(document.querySelectorAll(".annotation-indicator").length, 1);
+    const drawMask = async () => {
+      await act(async () => {
+        const canvas = document.querySelector(
+          ".document-stage .annotation-canvas",
+        );
+        const bounds = canvas.getBoundingClientRect();
+        for (const [type, x, y] of [
+          ["pointerdown", 0.1, 0.4],
+          ["pointermove", 0.3, 0.5],
+          ["pointerup", 0.3, 0.5],
+        ]) {
+          const event = new window.MouseEvent(type, {
+            bubbles: true,
+            button: 0,
+            clientX: x * bounds.width,
+            clientY: y * bounds.height,
+          });
+          Object.defineProperty(event, "pointerId", { value: 1 });
+          canvas.dispatchEvent(event);
+        }
+      });
+      await settle();
+    };
+    await drawMask();
+    assert.equal(
+      document.querySelectorAll(".annotation-indicator").length,
+      1,
+      "manual mode only changes the current page",
+    );
+    await click("다음 작업 페이지");
+    await drawMask();
+    assert.equal(
+      document.querySelectorAll(".annotation-indicator").length,
+      2,
+      "each manual page receives its own mask",
+    );
+    await click("이전 작업 페이지");
+    assert.match(
+      document.querySelector(".region-navigation").textContent,
+      /1 \/ 3쪽/,
+    );
+    await click("개인정보 가리기");
+    await act(async () =>
+      document.querySelector('input[name="redaction-ocr"]').click(),
+    );
+    await act(async () =>
+      document
+        .querySelector('input[name="region-mode"][value="single"]')
+        .click(),
+    );
+    await click("영역 지정");
+    await drawMask();
+    assert.equal(
+      document.querySelectorAll(".annotation-indicator").length,
+      2,
+      "single mode keeps masks on the active page",
+    );
     await click("새로 만들기");
     await click("새로 시작");
     assert.deepEqual(errors, [], "no React runtime errors");
