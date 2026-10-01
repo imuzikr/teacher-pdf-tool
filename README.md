@@ -12,7 +12,7 @@ npm ci --cache /tmp/teacher-pdf-npm-cache
 npm run dev -- --host 0.0.0.0 --port 4173 --strictPort
 ```
 
-설치 후 PDF.js의 CMap, 표준 글꼴, 이미지 디코딩 자산을 `public/pdf-assets/`에 복사합니다. 외부 CDN 없이 제공합니다. 앱은 루트 경로(`/`)에 배포하도록 구성되어 있습니다.
+설치 후 PDF.js의 CMap, 표준 글꼴, 이미지 디코딩 자산을 `public/pdf-assets/`에 복사합니다. 외부 CDN 없이 제공합니다. 개발 서버는 루트 경로(`/`), 프로덕션 빌드는 GitHub Pages의 `/teacher-pdf-tool/` 경로를 사용합니다.
 
 ```bash
 npm test
@@ -21,6 +21,14 @@ npm run preview -- --port 4173 --strictPort
 ```
 
 `dist/`를 정적 웹 호스팅에 배포할 수 있습니다. HTTPS 환경에서는 클립보드 복사를 사용할 수 있습니다. 클립보드 권한이 없는 경우 텍스트 선택 창이 열립니다.
+
+## GitHub Pages 배포
+
+저장소의 **Settings → Pages → Build and deployment → Source**를 **GitHub Actions**로 설정합니다. 이후 `main`에 푸시할 때마다 `.github/workflows/pages.yml`이 의존성 설치, 테스트, 빌드를 거쳐 `dist/`를 GitHub Pages에 배포합니다. Actions의 **Deploy to GitHub Pages → Run workflow**로 수동 배포할 수도 있습니다.
+
+배포 주소는 `https://imuzikr.github.io/teacher-pdf-tool/`입니다. 주소는 Pages 배포가 성공한 뒤 사용할 수 있습니다. 사이트는 공개되지만 사용자가 연 PDF는 서버로 전송하지 않습니다.
+
+로컬에서 배포 빌드를 확인하려면 `npm run preview -- --port 4174 --strictPort`를 실행하고 `/teacher-pdf-tool/` 경로를 사용합니다. 다른 저장소 이름이나 사용자 지정 도메인으로 옮기는 경우 `vite.config.js`의 빌드 `base`를 수정해야 합니다.
 
 ## 기능
 

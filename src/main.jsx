@@ -6,14 +6,15 @@ import App from "./App.jsx";
 import "./styles.css";
 
 pdfjs.GlobalWorkerOptions.workerSrc = worker;
+const pdfAssets = `${import.meta.env.BASE_URL}pdf-assets/`;
 const renderer = {
   getDocument: (options) =>
     pdfjs.getDocument({
       ...options,
-      cMapUrl: "/pdf-assets/cmaps/",
+      cMapUrl: `${pdfAssets}cmaps/`,
       cMapPacked: true,
-      standardFontDataUrl: "/pdf-assets/standard_fonts/",
-      wasmUrl: "/pdf-assets/wasm/",
+      standardFontDataUrl: `${pdfAssets}standard_fonts/`,
+      wasmUrl: `${pdfAssets}wasm/`,
     }),
 };
 createRoot(document.getElementById("root")).render(<App pdfjs={renderer} />);
