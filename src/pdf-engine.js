@@ -50,6 +50,38 @@ export function rotatedSize(page) {
     : { width: page.width, height: page.height };
 }
 
+// Copy the visible region, including across pages with different quarter-turns.
+export function applyRedaction(pages, reference, annotation, targetIds) {
+  const displayPoint = (x, y) => {
+    const rotation = normalizeRotation(reference.rotation);
+    if (rotation === 90) return { x: 1 - y, y: x };
+    if (rotation === 180) return { x: 1 - x, y: 1 - y };
+    if (rotation === 270) return { x: y, y: 1 - x };
+    return { x, y };
+  };
+  const corners = [
+    [annotation.x, annotation.y],
+    [annotation.x + annotation.width, annotation.y],
+    [annotation.x, annotation.y + annotation.height],
+    [annotation.x + annotation.width, annotation.y + annotation.height],
+  ].map(([x, y]) => displayPoint(x, y));
+  return pages.map((page) => {
+    if (!targetIds.has(page.id)) return page;
+    const points = corners.map((p) => toBasePoint(p.x, p.y, page.rotation));
+    const x = Math.min(...points.map((p) => p.x));
+    const y = Math.min(...points.map((p) => p.y));
+    const region = {
+      ...annotation,
+      id: uid(),
+      x,
+      y,
+      width: Math.max(...points.map((p) => p.x)) - x,
+      height: Math.max(...points.map((p) => p.y)) - y,
+    };
+    return { ...page, annotations: [...page.annotations, region] };
+  });
+}
+
 const imageCache = new Map();
 async function getImage(url) {
   if (!imageCache.has(url)) {
@@ -72,6 +104,7 @@ export async function drawAnnotations(
   width,
   height,
   annotations = page.annotations,
+  showRedactionBounds = false,
 ) {
   ctx.save();
   const rotation = normalizeRotation(page.rotation);
@@ -130,9 +163,15 @@ export async function drawAnnotations(
           a.height * h,
         );
       } else if (a.type === "redact") {
-        ctx.fillStyle = a.color || "#000000";
+        ctx.fillStyle = a.color || "#ffffff";
         ctx.globalAlpha = 1;
         ctx.fillRect(a.x * w, a.y * h, a.width * w, a.height * h);
+        if (showRedactionBounds) {
+          ctx.strokeStyle = "#087f5b";
+          ctx.lineWidth = Math.max(1, w / 600);
+          ctx.setLineDash([6, 4]);
+          ctx.strokeRect(a.x * w, a.y * h, a.width * w, a.height * h);
+        }
       }
       ctx.restore();
     }
@@ -218,8 +257,8 @@ export async function exportPdf(pages, options = {}) {
     }
     options.onProgress?.(index + 1, pages.length);
   }
-  output.setTitle("쌤PDF 편집 문서");
-  output.setProducer("Teacher PDF Tool");
+  output.setTitle("Sen PDF 편집 문서");
+  output.setProducer("Sen PDF");
   return output.save();
 }
 

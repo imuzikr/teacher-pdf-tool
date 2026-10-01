@@ -42,6 +42,7 @@ import {
   exportPdf,
   extractText,
   createDemoPdf,
+  applyRedaction,
   downloadPdf,
   uid,
   toBasePoint,
@@ -109,6 +110,7 @@ export default function App({ pdfjs }) {
   const [fontSize, setFontSize] = useState(0.025);
   const [modal, setModal] = useState(null);
   const [compression, setCompression] = useState(150);
+  const [redactionScope, setRedactionScope] = useState("current");
   const [busy, setBusy] = useState("");
   const [toast, setToast] = useState(null);
   const [dropOver, setDropOver] = useState(false);
@@ -340,6 +342,7 @@ export default function App({ pdfjs }) {
     setDirty(false);
     setDraft(null);
     setSignature(null);
+    setRedactionScope("current");
     setTool("move");
     setZoom(100);
     setModal(null);
@@ -407,6 +410,10 @@ export default function App({ pdfjs }) {
   };
   const pointerDown = (e) => {
     if (operation.current || !page || e.button !== 0) return;
+    if (tool === "redact" && redactionScope === "selected" && !selected.size) {
+      notify("가림 영역을 적용할 페이지를 먼저 선택해 주세요.", true);
+      return;
+    }
     e.currentTarget.setPointerCapture(e.pointerId);
     const p = point(e);
     if (tool === "move") {
@@ -468,11 +475,22 @@ export default function App({ pdfjs }) {
     const annotation = {
       id: uid(),
       type: tool,
-      color: tool === "redact" ? "#000000" : color,
+      color: tool === "redact" ? "#ffffff" : color,
       size,
       ...(tool === "redact" ? { ...p, width: 0, height: 0 } : { points: [p] }),
     };
-    pointer.current = { annotation, origin: p };
+    pointer.current = {
+      annotation,
+      origin: p,
+      reference: page,
+      targetIds: new Set(
+        redactionScope === "all"
+          ? pages.map((p) => p.id)
+          : redactionScope === "selected"
+            ? [...selected]
+            : [page.id],
+      ),
+    };
     setDraft(annotation);
   };
   const pointerMove = (e) => {
@@ -541,11 +559,19 @@ export default function App({ pdfjs }) {
     }
     const a = current.annotation;
     if (a.type === "redact" && (a.width < 0.003 || a.height < 0.003)) return;
-    updateAnnotations([...page.annotations, a]);
-    if (a.type === "redact")
-      notify(
-        "영역을 가렸습니다. 저장하면 문서 전체가 이미지 PDF로 변환됩니다.",
+    if (a.type === "redact") {
+      commit(
+        applyRedaction(
+          pagesRef.current,
+          current.reference,
+          a,
+          current.targetIds,
+        ),
       );
+      notify(
+        `${current.targetIds.size}페이지의 같은 위치를 흰색으로 가렸습니다. 저장하면 문서 전체가 이미지 PDF로 변환됩니다.`,
+      );
+    } else updateAnnotations([...page.annotations, a]);
   };
   useEffect(() => {
     const key = (e) => {
@@ -662,13 +688,13 @@ export default function App({ pdfjs }) {
                 if (!pages.length) return;
                 setModal({ type: "new" });
               }}
-              aria-label="쌤PDF 작업실"
+              aria-label="Sen PDF 작업실"
             >
               <span className="brand-mark">
                 <FilePdf size={27} weight="bold" />
               </span>
               <span>
-                <b>쌤</b>PDF<small>TEACHER’S PDF STUDIO</small>
+                <b>Sen</b> PDF<small>TEACHER’S PDF STUDIO</small>
               </span>
             </a>
             <div className="header-tools">
@@ -948,8 +974,13 @@ export default function App({ pdfjs }) {
                 <>
                   <ShieldCheck size={16} />
                   <span>
-                    가릴 영역을 드래그하세요. 저장하면 문서 전체가 이미지 PDF로
-                    변환됩니다.
+                    가릴 영역을 드래그하세요 ·{" "}
+                    {redactionScope === "all"
+                      ? `전체 ${pages.length}페이지`
+                      : redactionScope === "selected"
+                        ? `선택한 ${selected.size}페이지`
+                        : "현재 페이지"}
+                    에 흰색으로 적용합니다.
                   </span>
                 </>
               ) : tool === "signature" ? (
@@ -1339,9 +1370,48 @@ export default function App({ pdfjs }) {
                 <ShieldCheck size={30} />
               </div>
               <p className="modal-description">
-                드래그한 영역을 검은색으로 가립니다. 안전한 공유를 위해 저장할
-                때 문서 전체를 새 이미지 PDF로 만듭니다. 저장한 파일에서는 원래
+                드래그한 영역을 흰색으로 가립니다. 안전한 공유를 위해 저장할 때
+                문서 전체를 새 이미지 PDF로 만듭니다. 저장한 파일에서는 원래
                 글자를 검색하거나 복사할 수 없습니다.
+              </p>
+              <fieldset className="redaction-scope">
+                <legend>가림 영역을 적용할 페이지</legend>
+                {[
+                  ["current", "현재 페이지", "지금 보고 있는 한 페이지에 적용"],
+                  [
+                    "selected",
+                    `선택한 페이지 (${selected.size}쪽)`,
+                    "왼쪽 목록에서 선택한 페이지에 같은 위치 적용",
+                  ],
+                  [
+                    "all",
+                    `전체 페이지 (${pages.length}쪽)`,
+                    "추가한 모든 PDF의 페이지에 같은 위치 적용",
+                  ],
+                ].map(([value, title, description]) => (
+                  <label
+                    key={value}
+                    className={`compression-option ${redactionScope === value ? "selected" : ""}`}
+                  >
+                    <input
+                      type="radio"
+                      name="redaction-scope"
+                      value={value}
+                      checked={redactionScope === value}
+                      disabled={value === "selected" && !selected.size}
+                      onChange={() => setRedactionScope(value)}
+                    />
+                    <span>
+                      <strong>{title}</strong>
+                      <small>{description}</small>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
+              <p className="modal-footnote">
+                페이지 크기가 다르면 같은 비율의 위치에 적용됩니다. 같은 서식의
+                페이지만 선택하고, 저장 전 가려진 위치를 확인하세요. 여러 영역을
+                이어서 지정할 수 있습니다.
               </p>
               <div className="inline-notice">
                 <LockKey size={18} />
@@ -1355,7 +1425,10 @@ export default function App({ pdfjs }) {
                 <ToolButton
                   icon={ShieldCheck}
                   className="primary"
+                  disabled={redactionScope === "selected" && !selected.size}
                   onClick={() => {
+                    if (redactionScope === "selected" && !selected.has(page.id))
+                      setActiveId(targets[0].id);
                     setTool("redact");
                     setModal(null);
                   }}

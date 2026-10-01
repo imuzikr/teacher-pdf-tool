@@ -1631,3 +1631,22 @@ input[type="radio"] {
 .thumbnail-canvas > canvas:not(.annotation-canvas) {
   height: auto;
 }
+
+.redaction-scope {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.redaction-scope legend {
+  color: #315e48;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.redaction-scope label:has(input:disabled) {
+  opacity: 0.5;
+  cursor: default;
+}

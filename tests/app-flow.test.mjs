@@ -212,10 +212,19 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     await settle();
     await click("텍스트 복사");
     assert.match(copied, /Classroom Notes/);
+    assert.match(document.querySelector(".brand").textContent, /Sen PDF/);
+    await act(async () =>
+      document.querySelectorAll(".page-checkbox")[1].click(),
+    );
     await click("개인정보 가리기");
     assert.equal(
       document.querySelector("[role=dialog] h2").textContent,
       "개인정보 가리기",
+    );
+    await act(async () =>
+      document
+        .querySelector('input[name="redaction-scope"][value="selected"]')
+        .click(),
     );
     await click("영역 지정");
     const drawing = document.querySelector(
@@ -238,7 +247,35 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       pointer("pointerup", 0.4, 0.3);
     });
     await settle();
-    assert.equal(document.querySelectorAll(".annotation-indicator").length, 1);
+    assert.equal(document.querySelectorAll(".annotation-indicator").length, 2);
+    await click("실행 취소");
+    assert.equal(document.querySelectorAll(".annotation-indicator").length, 0);
+    await act(async () =>
+      document.dispatchEvent(
+        new window.KeyboardEvent("keydown", {
+          key: "Z",
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+        }),
+      ),
+    );
+    await settle();
+    assert.equal(document.querySelectorAll(".annotation-indicator").length, 2);
+    await click("개인정보 가리기");
+    await act(async () =>
+      document
+        .querySelector('input[name="redaction-scope"][value="all"]')
+        .click(),
+    );
+    await click("영역 지정");
+    await act(async () => {
+      pointer("pointerdown", 0.6, 0.1);
+      pointer("pointermove", 0.8, 0.2);
+      pointer("pointerup", 0.8, 0.2);
+    });
+    await settle();
+    assert.equal(document.querySelectorAll(".annotation-indicator").length, 6);
     await click("저장");
     for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
       await settle();

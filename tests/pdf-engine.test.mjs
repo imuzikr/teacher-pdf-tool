@@ -42,6 +42,13 @@ async function fixture(name, titles, rotation = 0) {
   for (const title of titles) {
     const page = pdf.addPage([400, 600]);
     page.setRotation(degrees(rotation));
+    page.drawRectangle({
+      x: 0,
+      y: 450,
+      width: 400,
+      height: 150,
+      color: rgb(0.6, 0.6, 0.6),
+    });
     page.drawText(title, {
       x: 45,
       y: 520,
@@ -92,7 +99,7 @@ test("redaction removes text from the entire exported document and paints an opa
               y: 0.08,
               width: 0.7,
               height: 0.12,
-              color: "#000000",
+              color: "#ffffff",
             },
           ],
         }
@@ -104,10 +111,14 @@ test("redaction removes text from the entire exported document and paints an opa
   const safePages = await sourcePages(source);
   assert.equal(safePages.length, 2);
   assert.equal(await extractText(safePages), "");
+  const originalCanvas = await renderPage(original.pages[0], 1, canvasFactory);
+  assert.ok(
+    originalCanvas.getContext("2d").getImageData(100, 80, 1, 1).data[0] < 200,
+  );
   const canvas = await renderPage(safePages[0], 1, canvasFactory);
   const pixel = canvas.getContext("2d").getImageData(100, 80, 1, 1).data;
   assert.ok(
-    pixel[0] < 10 && pixel[1] < 10 && pixel[2] < 10,
+    pixel[0] > 245 && pixel[1] > 245 && pixel[2] > 245,
     `redacted pixel: ${pixel}`,
   );
   const untouchedPixel = canvas
@@ -134,7 +145,7 @@ test("rotated redaction uses visible coordinates correctly", async () => {
   assert.deepEqual(rotatedSize(result), { width: 600, height: 400 });
   const canvas = await renderPage(result, 1, canvasFactory);
   const pixel = canvas.getContext("2d").getImageData(480, 80, 1, 1).data;
-  assert.ok(pixel[0] < 10 && pixel[1] < 10 && pixel[2] < 10);
+  assert.ok(pixel[0] > 245 && pixel[1] > 245 && pixel[2] > 245);
   assert.equal(await extractText([result]), "");
   await Promise.all([
     original.source.document.destroy(),

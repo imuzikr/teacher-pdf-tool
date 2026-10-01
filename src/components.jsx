@@ -178,6 +178,7 @@ export function PageCanvas({
       dimensions.width,
       dimensions.height,
       [...page.annotations, ...(draft ? [draft] : [])],
+      !thumbnail && tool === "redact",
     )
       .then(() => {
         if (disposed || !overlay.current) return;
@@ -191,7 +192,7 @@ export function PageCanvas({
     return () => {
       disposed = true;
     };
-  }, [dimensions, page.annotations, page.rotation, draft]);
+  }, [dimensions, page.annotations, page.rotation, draft, tool, thumbnail]);
   const rotated = page.rotation % 180 !== 0;
   const height =
     width * (rotated ? page.width / page.height : page.height / page.width);
