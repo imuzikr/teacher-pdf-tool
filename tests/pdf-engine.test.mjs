@@ -21,9 +21,16 @@ import {
   createDemoPdf,
 } from "../src/pdf-engine.js";
 
+import {
+  addAssemblyPages,
+  moveAssemblyEntry,
+  resolveAssemblyPages,
+} from "../src/assembly.js";
+
 Object.assign(globalThis, { DOMMatrix, ImageData, Path2D, Image });
 const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
 const renderer = {
+  PagesMapper: pdfjs.PagesMapper,
   getDocument: (options) =>
     pdfjs.getDocument({
       ...options,
@@ -263,4 +270,52 @@ test("empty export and invalid PDF fail explicitly", async () => {
   await assert.rejects(
     loadSource(new TextEncoder().encode("invalid PDF"), "bad.pdf", renderer),
   );
+});
+
+test("new document extracts and merges source pages independently with duplicates and current edits", async () => {
+  const a = await fixture("first.pdf", ["A ONE", "A TWO", "A THREE"]);
+  const b = await fixture("second.pdf", ["B ONE", "B TWO"]);
+  assert.match(
+    await extractText([a.pages[2]]),
+    /A THREE/,
+    "a shorter PDF must not invalidate a longer document's pages",
+  );
+  await assert.rejects(a.source.document.getPage(4), /Invalid page request/);
+  const pages = [...a.pages, ...b.pages];
+  let entries = addAssemblyPages(
+    [],
+    pages,
+    new Set([a.pages[2].id, b.pages[0].id]),
+  );
+  entries = addAssemblyPages(entries, pages, new Set([a.pages[2].id]));
+  assert.equal(
+    new Set(entries.map((e) => e.id)).size,
+    3,
+    "duplicate source pages have separate destination identities",
+  );
+  entries = moveAssemblyEntry(entries, entries[1].id, 0);
+  const edited = pages.map((p) =>
+    p.id === b.pages[0].id ? { ...p, rotation: 90 } : p,
+  );
+  const result = await exportPdf(resolveAssemblyPages(entries, edited));
+  const pdf = await PDFDocument.load(result);
+  assert.equal(pdf.getPageCount(), 3);
+  assert.equal(pdf.getPage(0).getRotation().angle, 90);
+  const out = await loadSource(result, "new.pdf", renderer);
+  const text = await extractText(await sourcePages(out));
+  assert.match(text, /B ONE[\s\S]*A THREE[\s\S]*A THREE/);
+  assert.doesNotMatch(text, /A ONE|A TWO|B TWO/);
+  assert.equal(pages.length, 5);
+  assert.equal(b.pages[0].rotation, 0);
+  assert.equal(moveAssemblyEntry(entries, entries[0].id, -1), entries);
+  assert.equal(
+    resolveAssemblyPages(entries, [])[0],
+    b.pages[0],
+    "source removal retains the destination copy",
+  );
+  await Promise.all([
+    a.source.document.destroy(),
+    b.source.document.destroy(),
+    out.document.destroy(),
+  ]);
 });

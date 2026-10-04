@@ -9,6 +9,20 @@ export async function loadSource(bytes, name, pdfjs) {
     data: data.slice(),
     isEvalSupported: false,
   }).promise;
+  // PDF.js 5.4 shares PagesMapper across open documents. Loading a shorter
+  // document shrinks its global page limit; restore it before each request.
+  // Check against this document's own count so a larger shared limit never
+  // makes out-of-range requests valid.
+  if (pdfjs.PagesMapper) {
+    const getPage = document.getPage.bind(document);
+    document.getPage = (number) => {
+      if (!Number.isInteger(number) || number < 1 || number > document.numPages)
+        return Promise.reject(new Error("Invalid page request."));
+      const mapper = pdfjs.PagesMapper.instance;
+      mapper.pagesNumber = Math.max(mapper.pagesNumber, document.numPages);
+      return getPage(number);
+    };
+  }
   return { id: uid(), name, bytes: data, document };
 }
 

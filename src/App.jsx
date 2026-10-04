@@ -36,6 +36,7 @@ import {
   ArrowsDownUp,
 } from "@phosphor-icons/react";
 import { ToolButton, Modal, PageCanvas, SignaturePad } from "./components.jsx";
+import PdfAssembler from "./PdfAssembler.jsx";
 import {
   parseTerms,
   scanPdfWords,
@@ -106,6 +107,9 @@ function annotationHit(a, p, page) {
 
 export default function App({ pdfjs, createOcrWorker }) {
   const [pages, setPages] = useState([]);
+  const [assemblyView, setAssemblyView] = useState(false);
+  const [assembly, setAssembly] = useState([]);
+  const [assemblyDirty, setAssemblyDirty] = useState(false);
   const [selected, setSelected] = useState(new Set());
   const [activeId, setActiveId] = useState(null);
   const [zoom, setZoom] = useState(100);
@@ -174,14 +178,14 @@ export default function App({ pdfjs, createOcrWorker }) {
   }, [slide, pages.length > 0]);
   useEffect(() => {
     const beforeUnload = (e) => {
-      if (dirty) {
+      if (dirty || assemblyDirty) {
         e.preventDefault();
         e.returnValue = "";
       }
     };
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
-  }, [dirty]);
+  }, [dirty, assemblyDirty]);
   const commit = useCallback((next) => {
     past.current.push(pagesRef.current);
     if (past.current.length > 20) past.current.shift();
@@ -214,6 +218,19 @@ export default function App({ pdfjs, createOcrWorker }) {
       setActiveId(pages[0].id);
     const valid = new Set(pages.map((p) => p.id));
     setSelected((old) => new Set([...old].filter((id) => valid.has(id))));
+  }, [pages]);
+  useEffect(() => {
+    const current = new Map(pages.map((p) => [p.id, p]));
+    setAssembly((old) => {
+      let changed = false;
+      const next = old.map((entry) => {
+        const page = current.get(entry.page.id);
+        if (!page || page === entry.page) return entry;
+        changed = true;
+        return { ...entry, page };
+      });
+      return changed ? next : old;
+    });
   }, [pages]);
   const targets = pages.filter((p) => selected.has(p.id));
   const importFiles = async (files) => {
@@ -290,26 +307,36 @@ export default function App({ pdfjs, createOcrWorker }) {
       setBusy("");
     }
   };
-  const save = async (preset) => {
-    if (!pages.length || operation.current) return;
+  const save = async (
+    preset,
+    exportPages = pages,
+    filename,
+    assembled = false,
+  ) => {
+    if (!exportPages.length || operation.current) return;
     operation.current = true;
     setBusy("PDF를 준비하는 중…");
     try {
-      const bytes = await exportPdf(pages, {
+      const bytes = await exportPdf(exportPages, {
         ...(preset ? { dpi: preset.id, quality: preset.quality } : {}),
         onProgress: (n, total) =>
           setBusy(`PDF 저장 중 · ${n} / ${total}페이지`),
       });
-      const name = (pages[0].source.name || "문서.pdf").replace(/\.pdf$/i, "");
-      const redacted = pages.some((p) =>
+      const name = (exportPages[0].source.name || "문서.pdf").replace(
+        /\.pdf$/i,
+        "",
+      );
+      const redacted = exportPages.some((p) =>
         p.annotations.some((a) => a.type === "redact"),
       );
       downloadPdf(
         bytes,
-        `${name}_${preset ? "압축" : redacted ? "가림" : "편집"}.pdf`,
+        filename ||
+          `${name}_${preset ? "압축" : redacted ? "가림" : "편집"}.pdf`,
       );
       setModal(null);
-      if (!preset) setDirty(false);
+      if (assembled) setAssemblyDirty(false);
+      else if (!preset) setDirty(false);
       notify(
         `${readableSize(bytes.length)} PDF를 다운로드했습니다.${preset ? " 원본은 그대로 유지됩니다." : ""}`,
       );
@@ -431,6 +458,9 @@ export default function App({ pdfjs, createOcrWorker }) {
     }
   };
   const reset = () => {
+    setAssembly([]);
+    setAssemblyView(false);
+    setAssemblyDirty(false);
     setPages([]);
     setSelected(new Set());
     setActiveId(null);
@@ -856,6 +886,14 @@ export default function App({ pdfjs, createOcrWorker }) {
               >
                 파일 추가
               </ToolButton>
+              <ToolButton
+                icon={ArrowsDownUp}
+                className={assemblyView ? "active" : ""}
+                disabled={!!busy}
+                onClick={() => setAssemblyView((value) => !value)}
+              >
+                {assemblyView ? "페이지 편집으로 돌아가기" : "페이지 추출·병합"}
+              </ToolButton>
               <span className="tool-divider" />
               <ToolButton
                 icon={Copy}
@@ -943,300 +981,329 @@ export default function App({ pdfjs, createOcrWorker }) {
         </>
       )}
 
-      <main className="workspace">
-        {!slide && (
-          <aside className="sidebar" aria-label="페이지 목록">
-            <div className="sidebar-title">
-              <div>
-                <strong>페이지</strong>
-                <span>{pages.length ? `${pages.length}쪽` : "0쪽"}</span>
-              </div>
-              <button
-                className="text-button"
-                disabled={!pages.length || !!busy}
-                onClick={() =>
-                  setSelected(
-                    selected.size === pages.length
-                      ? new Set()
-                      : new Set(pages.map((p) => p.id)),
-                  )
-                }
-              >
-                {pages.length && selected.size === pages.length
-                  ? "선택 해제"
-                  : "전체 선택"}
-              </button>
-            </div>
-            <div className="sidebar-guide">
-              <span>드래그해서 순서 변경</span>
-              <label className="columns-control">
-                <ArrowsDownUp size={14} />
-                <select
-                  aria-label="썸네일 열 수"
-                  value={columns}
-                  onChange={(e) => setColumns(Number(e.target.value))}
-                >
-                  <option value="1">1열</option>
-                  <option value="2">2열</option>
-                </select>
-                <CaretDown size={11} />
-              </label>
-            </div>
-            {!pages.length ? (
-              <div className="sidebar-empty">
-                <FilePdf size={34} weight="thin" />
-                <p>
-                  문서를 추가하면
-                  <br />
-                  페이지가 여기에 나타나요
-                </p>
-              </div>
-            ) : (
-              <div className={`thumbnails columns-${columns}`}>
-                {pages.map((p, i) => (
-                  <div
-                    className={`thumbnail ${selected.has(p.id) ? "selected" : ""} ${p.id === page?.id ? "current" : ""}`}
-                    key={p.id}
-                    draggable={!busy}
-                    onDragStart={(e) => {
-                      draggingPage.current = p.id;
-                      e.dataTransfer.setData("text/plain", p.id);
-                      e.dataTransfer.effectAllowed = "move";
-                    }}
-                    onDragOver={(e) => {
-                      if (draggingPage.current && !busy) e.preventDefault();
-                    }}
-                    onDragEnd={() => {
-                      draggingPage.current = null;
-                    }}
-                    onDrop={(e) => {
-                      if (!draggingPage.current || busy) return;
-                      e.preventDefault();
-                      e.stopPropagation();
-                      const from = pages.findIndex(
-                        (q) => q.id === draggingPage.current,
-                      );
-                      const next = [...pages];
-                      const [moved] = next.splice(from, 1);
-                      next.splice(i, 0, moved);
-                      draggingPage.current = null;
-                      commit(next);
-                    }}
+      <main
+        className={`workspace ${assemblyView && !slide ? "assembly-workspace" : ""}`}
+      >
+        {assemblyView && !slide ? (
+          <PdfAssembler
+            pages={pages}
+            selected={selected}
+            setSelected={setSelected}
+            entries={assembly}
+            busy={!!busy}
+            onAddFiles={() => upload.current.click()}
+            onChange={(next) => {
+              setAssembly(next);
+              setAssemblyDirty(true);
+            }}
+            onSave={(newPages, name) => save(null, newPages, name, true)}
+          />
+        ) : (
+          <>
+            {!slide && (
+              <aside className="sidebar" aria-label="페이지 목록">
+                <div className="sidebar-title">
+                  <div>
+                    <strong>페이지</strong>
+                    <span>{pages.length ? `${pages.length}쪽` : "0쪽"}</span>
+                  </div>
+                  <button
+                    className="text-button"
+                    disabled={!pages.length || !!busy}
+                    onClick={() =>
+                      setSelected(
+                        selected.size === pages.length
+                          ? new Set()
+                          : new Set(pages.map((p) => p.id)),
+                      )
+                    }
                   >
-                    <input
-                      className="page-checkbox"
-                      type="checkbox"
-                      checked={selected.has(p.id)}
-                      aria-label={`${i + 1}페이지 선택`}
-                      disabled={!!busy}
-                      onChange={() =>
-                        setSelected((old) => {
-                          const next = new Set(old);
-                          next.has(p.id) ? next.delete(p.id) : next.add(p.id);
-                          return next;
-                        })
-                      }
-                    />
-                    <button
-                      className="thumbnail-open"
-                      aria-label={`${i + 1}페이지 보기`}
-                      disabled={!!busy}
-                      onClick={(e) => selectPage(p, e)}
+                    {pages.length && selected.size === pages.length
+                      ? "선택 해제"
+                      : "전체 선택"}
+                  </button>
+                </div>
+                <div className="sidebar-guide">
+                  <span>드래그해서 순서 변경</span>
+                  <label className="columns-control">
+                    <ArrowsDownUp size={14} />
+                    <select
+                      aria-label="썸네일 열 수"
+                      value={columns}
+                      onChange={(e) => setColumns(Number(e.target.value))}
                     >
-                      <PageCanvas
-                        page={p}
-                        width={columns === 1 ? 178 : 76}
-                        thumbnail
-                      />
-                      <span>{i + 1}</span>
-                    </button>
-                    {p.annotations.length > 0 && (
-                      <span
-                        className="annotation-indicator"
-                        title="편집한 페이지"
+                      <option value="1">1열</option>
+                      <option value="2">2열</option>
+                    </select>
+                    <CaretDown size={11} />
+                  </label>
+                </div>
+                {!pages.length ? (
+                  <div className="sidebar-empty">
+                    <FilePdf size={34} weight="thin" />
+                    <p>
+                      문서를 추가하면
+                      <br />
+                      페이지가 여기에 나타나요
+                    </p>
+                  </div>
+                ) : (
+                  <div className={`thumbnails columns-${columns}`}>
+                    {pages.map((p, i) => (
+                      <div
+                        className={`thumbnail ${selected.has(p.id) ? "selected" : ""} ${p.id === page?.id ? "current" : ""}`}
+                        key={p.id}
+                        draggable={!busy}
+                        onDragStart={(e) => {
+                          draggingPage.current = p.id;
+                          e.dataTransfer.setData("text/plain", p.id);
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
+                        onDragOver={(e) => {
+                          if (draggingPage.current && !busy) e.preventDefault();
+                        }}
+                        onDragEnd={() => {
+                          draggingPage.current = null;
+                        }}
+                        onDrop={(e) => {
+                          if (!draggingPage.current || busy) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const from = pages.findIndex(
+                            (q) => q.id === draggingPage.current,
+                          );
+                          const next = [...pages];
+                          const [moved] = next.splice(from, 1);
+                          next.splice(i, 0, moved);
+                          draggingPage.current = null;
+                          commit(next);
+                        }}
                       >
-                        <PencilSimple size={12} />
-                      </span>
+                        <input
+                          className="page-checkbox"
+                          type="checkbox"
+                          checked={selected.has(p.id)}
+                          aria-label={`${i + 1}페이지 선택`}
+                          disabled={!!busy}
+                          onChange={() =>
+                            setSelected((old) => {
+                              const next = new Set(old);
+                              next.has(p.id)
+                                ? next.delete(p.id)
+                                : next.add(p.id);
+                              return next;
+                            })
+                          }
+                        />
+                        <button
+                          className="thumbnail-open"
+                          aria-label={`${i + 1}페이지 보기`}
+                          disabled={!!busy}
+                          onClick={(e) => selectPage(p, e)}
+                        >
+                          <PageCanvas
+                            page={p}
+                            width={columns === 1 ? 178 : 76}
+                            thumbnail
+                          />
+                          <span>{i + 1}</span>
+                        </button>
+                        {p.annotations.length > 0 && (
+                          <span
+                            className="annotation-indicator"
+                            title="편집한 페이지"
+                          >
+                            <PencilSimple size={12} />
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="sidebar-bottom">
+                  <ShieldCheck size={15} />
+                  <span>내 문서는 내 브라우저에</span>
+                </div>
+              </aside>
+            )}
+
+            <section className="document-area" aria-label="문서 작업 공간">
+              {page && (
+                <div
+                  className={`document-heading ${slide ? "slide-heading" : ""}`}
+                >
+                  <div className="document-name">
+                    <FilePdf size={18} />
+                    <span title={page.source.name}>{page.source.name}</span>
+                    {dirty && (
+                      <span
+                        className="unsaved-dot"
+                        title="저장하지 않은 변경 사항"
+                      />
                     )}
                   </div>
-                ))}
-              </div>
-            )}
-            <div className="sidebar-bottom">
-              <ShieldCheck size={15} />
-              <span>내 문서는 내 브라우저에</span>
-            </div>
-          </aside>
-        )}
-
-        <section className="document-area" aria-label="문서 작업 공간">
-          {page && (
-            <div className={`document-heading ${slide ? "slide-heading" : ""}`}>
-              <div className="document-name">
-                <FilePdf size={18} />
-                <span title={page.source.name}>{page.source.name}</span>
-                {dirty && (
-                  <span
-                    className="unsaved-dot"
-                    title="저장하지 않은 변경 사항"
+                  <div className="page-navigation">
+                    <button
+                      className="icon-button"
+                      aria-label="이전 페이지"
+                      disabled={activeIndex === 0 || !!busy}
+                      onClick={() => navigate(-1)}
+                    >
+                      <ArrowLeft size={16} />
+                    </button>
+                    <span>
+                      {activeIndex + 1}
+                      <i>/ {pages.length}</i>
+                    </span>
+                    <button
+                      className="icon-button"
+                      aria-label="다음 페이지"
+                      disabled={activeIndex === pages.length - 1 || !!busy}
+                      onClick={() => navigate(1)}
+                    >
+                      <ArrowRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
+              {page && !slide && (
+                <div
+                  className={`document-hint ${tool !== "move" ? "editing" : ""}`}
+                >
+                  {tool === "redact" ? (
+                    <>
+                      <ShieldCheck size={16} />
+                      <span>
+                        가릴 영역을 드래그하세요 ·{" "}
+                        {regionSession?.mode === "repeat"
+                          ? `${regionSession.ids.length}페이지의 같은 위치에 적용합니다.`
+                          : regionSession?.mode === "manual"
+                            ? "이 페이지에만 적용합니다. 페이지를 넘겨 각각 지정하세요."
+                            : "선택한 한 페이지에만 적용합니다."}
+                      </span>
+                    </>
+                  ) : tool === "signature" ? (
+                    <>
+                      <Signature size={16} />
+                      <span>문서에서 서명을 넣을 위치를 클릭하세요.</span>
+                    </>
+                  ) : (
+                    <>
+                      <Info size={15} />
+                      <span>
+                        페이지를 선택해 편집하세요. 여러 페이지는 Ctrl / ⌘ 또는
+                        Shift와 함께 선택할 수 있어요.
+                      </span>
+                    </>
+                  )}
+                  {tool === "redact" && regionSession?.mode === "manual" && (
+                    <div className="region-navigation">
+                      <button
+                        className="text-button"
+                        disabled={regionSession.ids.indexOf(activeId) <= 0}
+                        onClick={() => navigateRegion(-1)}
+                      >
+                        이전 작업 페이지
+                      </button>
+                      <span>
+                        {Math.max(0, regionSession.ids.indexOf(activeId) + 1)} /{" "}
+                        {regionSession.ids.length}쪽
+                      </span>
+                      <button
+                        className="text-button"
+                        disabled={
+                          regionSession.ids.indexOf(activeId) < 0 ||
+                          regionSession.ids.indexOf(activeId) >=
+                            regionSession.ids.length - 1
+                        }
+                        onClick={() => navigateRegion(1)}
+                      >
+                        다음 작업 페이지
+                      </button>
+                    </div>
+                  )}
+                  {tool !== "move" && (
+                    <button
+                      className="text-button"
+                      onClick={() => setTool("move")}
+                    >
+                      완료
+                    </button>
+                  )}
+                </div>
+              )}
+              <div
+                ref={stage}
+                className={`document-stage ${!page ? "empty-stage" : ""}`}
+              >
+                {page ? (
+                  <PageCanvas
+                    page={displayedPage}
+                    width={displayWidth}
+                    tool={tool}
+                    draft={draft}
+                    onPointerDown={pointerDown}
+                    onPointerMove={pointerMove}
+                    onPointerUp={pointerUp}
                   />
+                ) : (
+                  <div className="empty-state">
+                    <div className="empty-icon">
+                      <FilePdf size={46} weight="light" />
+                    </div>
+                    <span className="eyebrow">
+                      LESS PAPERWORK, MORE TEACHING
+                    </span>
+                    <h1>
+                      수업 준비가
+                      <br />
+                      <em>조금 더 가벼워지도록.</em>
+                    </h1>
+                    <p>
+                      여러 PDF를 하나로 모으고, 필요한 만큼 편집하세요.
+                      <br />
+                      수업에서 바로 쓰는 필기 도구까지 한곳에.
+                    </p>
+                    <button
+                      className="upload-zone"
+                      disabled={!!busy}
+                      onClick={() => upload.current.click()}
+                    >
+                      <UploadSimple size={28} />
+                      <strong>PDF 파일을 여기에 놓아주세요</strong>
+                      <span>또는 클릭해서 파일 선택 · 여러 파일 추가 가능</span>
+                      <span className="file-limit">파일당 최대 100MB</span>
+                    </button>
+                    <button
+                      className="demo-button"
+                      onClick={openDemo}
+                      disabled={!!busy}
+                    >
+                      파일 없이 먼저 둘러보기 <ArrowRight size={16} />
+                    </button>
+                    <div className="empty-features">
+                      <span>
+                        <FolderPlus size={18} />
+                        모으고 편집
+                      </span>
+                      <span>
+                        <ShieldCheck size={18} />
+                        안전하게 가리기
+                      </span>
+                      <span>
+                        <Presentation size={18} />
+                        수업하며 필기
+                      </span>
+                    </div>
+                    <p className="privacy-note">
+                      <LockKey size={13} /> 파일을 서버에 업로드하지 않습니다.
+                    </p>
+                  </div>
                 )}
               </div>
-              <div className="page-navigation">
-                <button
-                  className="icon-button"
-                  aria-label="이전 페이지"
-                  disabled={activeIndex === 0 || !!busy}
-                  onClick={() => navigate(-1)}
-                >
-                  <ArrowLeft size={16} />
-                </button>
-                <span>
-                  {activeIndex + 1}
-                  <i>/ {pages.length}</i>
-                </span>
-                <button
-                  className="icon-button"
-                  aria-label="다음 페이지"
-                  disabled={activeIndex === pages.length - 1 || !!busy}
-                  onClick={() => navigate(1)}
-                >
-                  <ArrowRight size={16} />
-                </button>
-              </div>
-            </div>
-          )}
-          {page && !slide && (
-            <div
-              className={`document-hint ${tool !== "move" ? "editing" : ""}`}
-            >
-              {tool === "redact" ? (
-                <>
-                  <ShieldCheck size={16} />
-                  <span>
-                    가릴 영역을 드래그하세요 ·{" "}
-                    {regionSession?.mode === "repeat"
-                      ? `${regionSession.ids.length}페이지의 같은 위치에 적용합니다.`
-                      : regionSession?.mode === "manual"
-                        ? "이 페이지에만 적용합니다. 페이지를 넘겨 각각 지정하세요."
-                        : "선택한 한 페이지에만 적용합니다."}
-                  </span>
-                </>
-              ) : tool === "signature" ? (
-                <>
-                  <Signature size={16} />
-                  <span>문서에서 서명을 넣을 위치를 클릭하세요.</span>
-                </>
-              ) : (
-                <>
-                  <Info size={15} />
-                  <span>
-                    페이지를 선택해 편집하세요. 여러 페이지는 Ctrl / ⌘ 또는
-                    Shift와 함께 선택할 수 있어요.
-                  </span>
-                </>
-              )}
-              {tool === "redact" && regionSession?.mode === "manual" && (
-                <div className="region-navigation">
-                  <button
-                    className="text-button"
-                    disabled={regionSession.ids.indexOf(activeId) <= 0}
-                    onClick={() => navigateRegion(-1)}
-                  >
-                    이전 작업 페이지
-                  </button>
-                  <span>
-                    {Math.max(0, regionSession.ids.indexOf(activeId) + 1)} /{" "}
-                    {regionSession.ids.length}쪽
-                  </span>
-                  <button
-                    className="text-button"
-                    disabled={
-                      regionSession.ids.indexOf(activeId) < 0 ||
-                      regionSession.ids.indexOf(activeId) >=
-                        regionSession.ids.length - 1
-                    }
-                    onClick={() => navigateRegion(1)}
-                  >
-                    다음 작업 페이지
-                  </button>
-                </div>
-              )}
-              {tool !== "move" && (
-                <button className="text-button" onClick={() => setTool("move")}>
-                  완료
-                </button>
-              )}
-            </div>
-          )}
-          <div
-            ref={stage}
-            className={`document-stage ${!page ? "empty-stage" : ""}`}
-          >
-            {page ? (
-              <PageCanvas
-                page={displayedPage}
-                width={displayWidth}
-                tool={tool}
-                draft={draft}
-                onPointerDown={pointerDown}
-                onPointerMove={pointerMove}
-                onPointerUp={pointerUp}
-              />
-            ) : (
-              <div className="empty-state">
-                <div className="empty-icon">
-                  <FilePdf size={46} weight="light" />
-                </div>
-                <span className="eyebrow">LESS PAPERWORK, MORE TEACHING</span>
-                <h1>
-                  수업 준비가
-                  <br />
-                  <em>조금 더 가벼워지도록.</em>
-                </h1>
-                <p>
-                  여러 PDF를 하나로 모으고, 필요한 만큼 편집하세요.
-                  <br />
-                  수업에서 바로 쓰는 필기 도구까지 한곳에.
-                </p>
-                <button
-                  className="upload-zone"
-                  disabled={!!busy}
-                  onClick={() => upload.current.click()}
-                >
-                  <UploadSimple size={28} />
-                  <strong>PDF 파일을 여기에 놓아주세요</strong>
-                  <span>또는 클릭해서 파일 선택 · 여러 파일 추가 가능</span>
-                  <span className="file-limit">파일당 최대 100MB</span>
-                </button>
-                <button
-                  className="demo-button"
-                  onClick={openDemo}
-                  disabled={!!busy}
-                >
-                  파일 없이 먼저 둘러보기 <ArrowRight size={16} />
-                </button>
-                <div className="empty-features">
-                  <span>
-                    <FolderPlus size={18} />
-                    모으고 편집
-                  </span>
-                  <span>
-                    <ShieldCheck size={18} />
-                    안전하게 가리기
-                  </span>
-                  <span>
-                    <Presentation size={18} />
-                    수업하며 필기
-                  </span>
-                </div>
-                <p className="privacy-note">
-                  <LockKey size={13} /> 파일을 서버에 업로드하지 않습니다.
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
+            </section>
+          </>
+        )}
       </main>
 
       {slide ? (

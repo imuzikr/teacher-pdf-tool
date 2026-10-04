@@ -8,6 +8,7 @@ import "./styles.css";
 pdfjs.GlobalWorkerOptions.workerSrc = worker;
 const pdfAssets = `${import.meta.env.BASE_URL}pdf-assets/`;
 const renderer = {
+  PagesMapper: pdfjs.PagesMapper,
   getDocument: (options) =>
     pdfjs.getDocument({
       ...options,

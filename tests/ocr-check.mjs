@@ -27,6 +27,7 @@ import {
 Object.assign(globalThis, { DOMMatrix, ImageData, Path2D });
 const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
 const renderer = {
+  PagesMapper: pdfjs.PagesMapper,
   getDocument: (options) =>
     pdfjs.getDocument({
       ...options,

@@ -21,6 +21,7 @@ import {
 Object.assign(globalThis, { DOMMatrix, ImageData, Path2D, Image });
 const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
 const renderer = {
+  PagesMapper: pdfjs.PagesMapper,
   getDocument: (options) =>
     pdfjs.getDocument({
       ...options,
@@ -227,6 +228,107 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     for (let i = 0; i < 20 && document.querySelector(".busy-indicator"); i++)
       await settle();
     assert.equal(document.querySelectorAll(".thumbnail").length, 6);
+    await click("페이지 추출·병합");
+    assert.equal(
+      document.querySelectorAll(".assembly-source").length,
+      2,
+      "one horizontal source row per file",
+    );
+    assert.ok(document.querySelector(".assembly-placeholder"));
+    await act(async () => {
+      for (const input of document.querySelectorAll(
+        ".assembly-source-checkbox:checked",
+      ))
+        input.click();
+    });
+    assert.equal(
+      [...document.querySelectorAll("button")].find(
+        (b) => b.textContent.trim() === "새 문서 PDF 저장",
+      ).disabled,
+      true,
+    );
+    await act(async () => {
+      const inputs = document.querySelectorAll(".assembly-source-checkbox");
+      inputs[1].click();
+      inputs[5].click();
+    });
+    await click("선택한 페이지 새 문서에 추가");
+    assert.equal(document.querySelectorAll(".assembly-draft-page").length, 2);
+    await act(async () =>
+      document.querySelector('[aria-label="새 문서 2쪽 앞으로 이동"]').click(),
+    );
+    assert.match(
+      document.querySelector(".assembly-draft-page").textContent,
+      /additional.pdf/,
+    );
+    await act(async () =>
+      document.querySelector('[aria-label="새 문서 2쪽 제거"]').click(),
+    );
+    const drag = (element, type) => {
+      const event = new window.MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+      });
+      Object.defineProperty(event, "dataTransfer", {
+        value: { setData() {}, files: [], types: [] },
+      });
+      element.dispatchEvent(event);
+    };
+    await act(async () => {
+      drag(document.querySelector(".assembly-source-page"), "dragstart");
+      drag(document.querySelector(".assembly-destination"), "dragover");
+      drag(document.querySelector(".assembly-destination"), "drop");
+    });
+    assert.equal(
+      document.querySelectorAll(".assembly-draft-page").length,
+      2,
+      "source drag adds a page",
+    );
+    await act(async () => {
+      const drafts = document.querySelectorAll(".assembly-draft-page");
+      drag(drafts[0], "dragstart");
+      drag(drafts[1], "drop");
+    });
+    assert.match(
+      document.querySelector(".assembly-draft-page").textContent,
+      /수업자료_예제.pdf/,
+    );
+    await click("새 문서 PDF 저장");
+    const assembledSource = await loadSource(
+      await downloaded.arrayBuffer(),
+      "assembled.pdf",
+      renderer,
+    );
+    const assembledPages = await sourcePages(assembledSource);
+    assert.equal(assembledPages.length, 2);
+    const assembledText = await extractText(assembledPages);
+    assert.match(assembledText, /Classroom Notes[\s\S]*Make it your own/);
+    assert.doesNotMatch(assembledText, /What did we learn today/);
+    await assembledSource.document.destroy();
+    await act(async () =>
+      document.querySelector('[aria-label="새 문서 2쪽 제거"]').click(),
+    );
+    await click("새 문서 PDF 저장");
+    const singleSource = await loadSource(
+      await downloaded.arrayBuffer(),
+      "single.pdf",
+      renderer,
+    );
+    assert.equal(singleSource.document.numPages, 1, "single PDF extraction");
+    await singleSource.document.destroy();
+    await click("페이지 편집으로 돌아가기");
+    assert.equal(
+      document.querySelectorAll(".thumbnail").length,
+      6,
+      "assembling leaves source pages intact",
+    );
+    await click("페이지 추출·병합");
+    assert.equal(
+      document.querySelectorAll(".assembly-draft-page").length,
+      1,
+      "new document survives switching views",
+    );
+    await click("페이지 편집으로 돌아가기");
     await click("전체 선택");
     assert.equal(document.querySelectorAll(".page-checkbox:checked").length, 6);
     await click("회전");
@@ -322,7 +424,11 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       renderer,
     );
     const savedPages = await sourcePages(result);
-    assert.equal(savedPages.length, 6);
+    assert.equal(
+      savedPages.length,
+      6,
+      document.querySelector(".toast")?.textContent,
+    );
     assert.equal(await extractText(savedPages), "");
     await result.document.destroy();
     await click("슬라이드 재생");

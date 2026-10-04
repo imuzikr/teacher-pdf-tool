@@ -1779,3 +1779,183 @@ input[type="radio"] {
     margin-left: 0;
   }
 }
+
+.assembly-workspace {
+  overflow: auto;
+  display: block;
+  background: #f5f8f5;
+}
+.pdf-assembler {
+  max-width: 1400px;
+  margin: auto;
+  padding: 24px 32px 40px;
+}
+.assembler-heading,
+.assembly-file-heading,
+.assembly-add-bar,
+.assembly-save-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.assembler-heading {
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.assembler-heading h2 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  color: #183f32;
+}
+.assembler-heading p {
+  margin: 0;
+  color: #678073;
+}
+.assembly-source-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.assembly-source {
+  padding: 18px;
+  border: 1px solid #dce6df;
+  border-radius: 16px;
+  background: white;
+}
+.assembly-file-heading {
+  margin-bottom: 14px;
+}
+.assembly-file-heading strong {
+  max-width: min(400px, 70vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assembly-file-heading h3 {
+  margin: 0;
+  font-size: 19px;
+}
+.assembly-file-heading span,
+.assembly-file-heading small {
+  color: #678073;
+}
+.assembly-page-row {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding: 4px 4px 14px;
+  align-items: flex-start;
+}
+.assembly-source-page,
+.assembly-draft-page {
+  flex: 0 0 137px;
+  padding: 12px;
+  border: 1px solid #dce6df;
+  border-radius: 12px;
+  background: #f7faf7;
+  cursor: grab;
+}
+.assembly-source-page.chosen {
+  border-color: #12835b;
+  background: #e8f5ed;
+}
+.assembly-source-page label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+}
+.assembly-source-page input {
+  align-self: flex-start;
+}
+.assembly-source-page label > span {
+  font-size: 13px;
+  text-align: center;
+}
+.assembly-add-bar {
+  justify-content: space-between;
+  margin: 20px 0;
+}
+.assembly-add-bar > span {
+  color: #678073;
+  font-size: 13px;
+}
+.assembly-destination {
+  min-height: 230px;
+  padding: 22px;
+  border: 2px dashed #9ec5ad;
+  background: #edf6ef;
+  border-radius: 18px;
+}
+.assembly-destination.drag-over {
+  border-color: #087f5b;
+  background: #dcefe1;
+}
+.assembly-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 170px;
+  gap: 12px;
+  color: #56826a;
+  text-align: center;
+}
+.assembly-placeholder p {
+  margin: 0;
+  font-size: 14px;
+}
+.assembly-draft-page {
+  background: white;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.assembly-draft-page strong {
+  font-size: 13px;
+}
+.assembly-draft-page small {
+  font-size: 11px;
+  color: #678073;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assembly-page-actions {
+  display: flex;
+  justify-content: space-between;
+}
+.assembly-page-actions .icon-button {
+  width: 30px;
+  height: 30px;
+}
+.assembly-save-bar {
+  margin-top: 22px;
+}
+.assembly-save-bar input {
+  flex: 1;
+  min-width: 150px;
+  padding: 12px;
+  border: 1px solid #cadacf;
+  border-radius: 10px;
+  background: white;
+  color: #183f32;
+}
+.assembly-empty-source {
+  color: #678073;
+  padding: 25px;
+  text-align: center;
+}
+@media (max-width: 720px) {
+  .pdf-assembler {
+    padding: 18px 12px;
+  }
+  .assembly-source,
+  .assembly-destination {
+    padding: 14px;
+  }
+  .assembly-save-bar label {
+    width: 100%;
+  }
+}
