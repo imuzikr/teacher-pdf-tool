@@ -1978,3 +1978,90 @@ input[type="radio"] {
     width: 100%;
   }
 }
+
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.app-body > .workspace {
+  min-width: 0;
+}
+.action-sidebar {
+  width: 244px;
+  flex: 0 0 244px;
+  min-height: 0;
+  padding: 20px 14px;
+  overflow-y: auto;
+  background: #fff;
+  border-right: 1px solid var(--line);
+  scrollbar-width: thin;
+}
+.action-sidebar .brand {
+  min-width: 0;
+  margin-bottom: 22px;
+}
+.action-sidebar .brand > span:last-child {
+  font-size: 25px;
+}
+.action-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.action-group + .action-group {
+  margin-top: 8px;
+}
+.action-sidebar .tool-button {
+  width: 100%;
+  min-width: 0;
+  height: 46px;
+  min-height: 46px;
+  padding: 0 12px;
+  justify-content: flex-start;
+  border-radius: 12px;
+  font-size: 12px;
+}
+.action-sidebar .tool-button > span {
+  min-width: 0;
+  white-space: normal;
+  text-align: left;
+}
+.action-sidebar .tool-divider {
+  width: 100%;
+  height: 1px;
+  margin: 4px 0;
+}
+@media (max-width: 720px) {
+  .action-sidebar {
+    width: 156px;
+    flex-basis: 156px;
+    padding: 14px 8px;
+  }
+  .action-sidebar .brand {
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .action-sidebar .brand-mark {
+    width: 34px;
+    height: 38px;
+    border-radius: 10px;
+  }
+  .action-sidebar .brand > span:last-child {
+    font-size: 21px;
+  }
+  .action-sidebar .brand small {
+    display: none;
+  }
+  .action-sidebar .tool-button {
+    height: 48px;
+    min-height: 48px;
+    padding: 0 8px;
+    font-size: 11px;
+    gap: 6px;
+  }
+  .action-sidebar .tool-button svg {
+    width: 18px;
+  }
+}

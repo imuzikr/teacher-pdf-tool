@@ -198,6 +198,18 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       ),
     );
     assert.match(document.body.textContent, /수업 준비가/);
+    const actionPanel = document.querySelector(
+      'aside[aria-label="문서 작업 도구"]',
+    );
+    assert.ok(actionPanel, "document tools are in a left sidebar");
+    assert.equal(actionPanel.querySelectorAll(".tool-button").length, 12);
+    assert.equal(
+      document.querySelector(".app-header"),
+      null,
+      "no horizontal button header remains",
+    );
+    assert.match(actionPanel.querySelector(".brand").textContent, /My PDF/);
+
     await click("파일 없이 먼저 둘러보기");
     for (let i = 0; i < 20 && document.querySelector(".busy-indicator"); i++)
       await settle();
@@ -398,7 +410,7 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     await settle();
     await click("텍스트 복사");
     assert.match(copied, /Classroom Notes/);
-    assert.match(document.querySelector(".brand").textContent, /Sen PDF/);
+    assert.match(document.querySelector(".brand").textContent, /My PDF/);
     await act(async () =>
       document.querySelectorAll(".page-checkbox")[1].click(),
     );

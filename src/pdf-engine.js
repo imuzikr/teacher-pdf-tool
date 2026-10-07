@@ -279,8 +279,8 @@ export async function exportPdf(pages, options = {}) {
     }
     options.onProgress?.(index + 1, pages.length);
   }
-  output.setTitle("Sen PDF 편집 문서");
-  output.setProducer("Sen PDF");
+  output.setTitle("My PDF 편집 문서");
+  output.setProducer("My PDF");
   return output.save();
 }
 

@@ -39,7 +39,7 @@ export default function PdfAssembler({
   onSave,
   busy,
 }) {
-  const [filename, setFilename] = useState("SenPDF_새문서.pdf");
+  const [filename, setFilename] = useState("MyPDF_새문서.pdf");
   const [dropOver, setDropOver] = useState(false);
   const root = useRef(null);
   const dragging = useRef(null);
