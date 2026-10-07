@@ -882,7 +882,7 @@ export default function App({ pdfjs, createOcrWorker }) {
                     : upload.current.click()
                 }
               >
-                새로 만들기
+                새 작업
               </ToolButton>
               <ToolButton
                 icon={FolderPlus}
@@ -1550,7 +1550,7 @@ export default function App({ pdfjs, createOcrWorker }) {
               "ocr-review": "OCR 검색 결과 확인",
               signature: "서명 추가",
               text: "텍스트 추가",
-              new: "새 문서 만들기",
+              new: "새 작업 시작",
               clear: "이 페이지의 편집 지우기",
               shortcuts: "슬라이드 단축키",
               copy: "텍스트 복사",
@@ -2028,7 +2028,7 @@ export default function App({ pdfjs, createOcrWorker }) {
               <div className="modal-footer">
                 <ToolButton onClick={closeModal}>취소</ToolButton>
                 <ToolButton icon={FilePlus} className="primary" onClick={reset}>
-                  새로 시작
+                  새 작업 시작
                 </ToolButton>
               </div>
             </>

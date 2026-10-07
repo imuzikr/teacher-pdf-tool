@@ -41,6 +41,8 @@ export default function PdfAssembler({
 }) {
   const [filename, setFilename] = useState("MyPDF_새문서.pdf");
   const [dropOver, setDropOver] = useState(false);
+  const [dropSlot, setDropSlot] = useState(null);
+  const [draggedId, setDraggedId] = useState(null);
   const root = useRef(null);
   const dragging = useRef(null);
   useDragAutoScroll(root, dragging, busy);
@@ -58,19 +60,45 @@ export default function PdfAssembler({
     });
   const startDrag = (event, value) => {
     dragging.current = value;
+    setDraggedId(value.type === "draft" ? value.id : null);
+    setDropSlot(null);
     event.dataTransfer.setData("application/x-senpdf-page", value.type);
     event.dataTransfer.effectAllowed =
       value.type === "source" ? "copy" : "move";
   };
-  const drop = (event, index = entries.length - 1) => {
+  const finishDrag = () => {
+    dragging.current = null;
+    setDraggedId(null);
+    setDropSlot(null);
+    setDropOver(false);
+  };
+  const slotAt = (event, index) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return index + (event.clientX >= rect.left + rect.width / 2 ? 1 : 0);
+  };
+  const markSlot = (slot) => {
+    const from = entries.findIndex(
+      (entry) => entry.id === dragging.current?.id,
+    );
+    const destination = slot > from ? slot - 1 : slot;
+    setDropSlot(destination === from ? null : slot);
+  };
+  const drop = (event, slot = dropSlot ?? entries.length) => {
     if (!dragging.current || busy) return;
     event.preventDefault();
     event.stopPropagation();
     const value = dragging.current;
     if (value.type === "source") add(new Set(value.ids));
-    else onChange(moveAssemblyEntry(entries, value.id, index));
-    dragging.current = null;
-    setDropOver(false);
+    else {
+      const from = entries.findIndex((entry) => entry.id === value.id);
+      const next = moveAssemblyEntry(
+        entries,
+        value.id,
+        slot > from ? slot - 1 : slot,
+      );
+      if (next !== entries) onChange(next);
+    }
+    finishDrag();
   };
   return (
     <div className="pdf-assembler" ref={root}>
@@ -100,17 +128,28 @@ export default function PdfAssembler({
                 <span>{sourceList.length}쪽</span>
                 <button
                   className="text-button"
-                  disabled={busy}
+                  disabled={busy || chosen.length === sourceList.length}
                   onClick={() =>
                     select(
                       sourceList.map((page) => page.id),
-                      chosen.length !== sourceList.length,
+                      true,
                     )
                   }
                 >
-                  {chosen.length === sourceList.length
-                    ? "파일 선택 해제"
-                    : "파일 전체 선택"}
+                  파일 전체 선택
+                </button>
+                <button
+                  className="text-button"
+                  aria-label={`${source.name} 선택 해제`}
+                  disabled={busy || !chosen.length}
+                  onClick={() =>
+                    select(
+                      sourceList.map((page) => page.id),
+                      false,
+                    )
+                  }
+                >
+                  선택 해제
                 </button>
                 <ToolButton
                   icon={Plus}
@@ -136,10 +175,7 @@ export default function PdfAssembler({
                           : [page.id],
                       })
                     }
-                    onDragEnd={() => {
-                      dragging.current = null;
-                      setDropOver(false);
-                    }}
+                    onDragEnd={finishDrag}
                   >
                     <label>
                       <input
@@ -188,11 +224,30 @@ export default function PdfAssembler({
           if (dragging.current && !busy) {
             event.preventDefault();
             setDropOver(true);
+            if (dragging.current.type === "draft") {
+              const cards = [
+                ...event.currentTarget.querySelectorAll(".assembly-draft-page"),
+              ];
+              const index = cards.findIndex((card) => {
+                const rect = card.getBoundingClientRect();
+                return event.clientX < rect.left + rect.width / 2;
+              });
+              markSlot(index < 0 ? entries.length : index);
+            }
           }
         }}
         onDragLeave={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget))
+          const rect = event.currentTarget.getBoundingClientRect();
+          const outside = event.relatedTarget
+            ? !event.currentTarget.contains(event.relatedTarget)
+            : event.clientX < rect.left ||
+              event.clientX > rect.right ||
+              event.clientY < rect.top ||
+              event.clientY > rect.bottom;
+          if (outside) {
             setDropOver(false);
+            setDropSlot(null);
+          }
         }}
         onDrop={(event) => drop(event)}
       >
@@ -214,18 +269,29 @@ export default function PdfAssembler({
           <div className="assembly-page-row assembly-draft-row">
             {entries.map((entry, index) => (
               <div
-                className="assembly-draft-page"
+                className={`assembly-draft-page ${draggedId === entry.id ? "is-dragging" : ""} ${dropSlot === index ? "drop-before" : dropSlot === entries.length && index === entries.length - 1 ? "drop-after" : ""}`}
                 key={entry.id}
                 draggable={!busy}
                 onDragStart={(event) =>
                   startDrag(event, { type: "draft", id: entry.id })
                 }
-                onDragEnd={() => {
-                  dragging.current = null;
-                  setDropOver(false);
+                onDragEnd={finishDrag}
+                onDragOver={(event) => {
+                  if (dragging.current?.type !== "draft" || busy) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setDropOver(true);
+                  markSlot(slotAt(event, index));
                 }}
-                onDrop={(event) => drop(event, index)}
+                onDrop={(event) => drop(event, slotAt(event, index))}
               >
+                {(dropSlot === index ||
+                  (dropSlot === entries.length &&
+                    index === entries.length - 1)) && (
+                  <span className="assembly-drop-hint" aria-hidden="true">
+                    {dropSlot === index ? "이 앞에 놓기" : "이 뒤에 놓기"}
+                  </span>
+                )}
                 <AssemblyPreview page={draftPages[index]} />
                 <strong>새 문서 {index + 1}쪽</strong>
                 <small title={entry.page.source.name}>

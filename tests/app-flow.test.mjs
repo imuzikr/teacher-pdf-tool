@@ -264,6 +264,24 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       inputs[1].click();
       inputs[5].click();
     });
+    await act(async () =>
+      document
+        .querySelector('.assembly-source button[aria-label$="선택 해제"]')
+        .click(),
+    );
+    assert.equal(
+      document.querySelectorAll(".assembly-source-checkbox")[1].checked,
+      false,
+      "clear deselects this file even with a partial selection",
+    );
+    assert.equal(
+      document.querySelectorAll(".assembly-source-checkbox")[5].checked,
+      true,
+      "clearing one file preserves other files' selections",
+    );
+    await act(async () =>
+      document.querySelectorAll(".assembly-source-checkbox")[1].click(),
+    );
     await click("선택한 페이지 새 문서에 추가");
     assert.equal(document.querySelectorAll(".assembly-draft-page").length, 2);
     await act(async () =>
@@ -350,11 +368,52 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       2,
       "source drag adds a page",
     );
-    await act(async () => {
-      const drafts = document.querySelectorAll(".assembly-draft-page");
-      drag(drafts[0], "dragstart");
-      drag(drafts[1], "drop");
-    });
+    await act(async () =>
+      drag(document.querySelectorAll(".assembly-draft-page")[0], "dragstart"),
+    );
+    await act(async () =>
+      drag(document.querySelectorAll(".assembly-draft-page")[1], "dragover", {
+        clientX: 900,
+      }),
+    );
+    assert.ok(
+      document.querySelector(".assembly-draft-page.drop-after"),
+      "a faint insertion target is displayed at the end",
+    );
+    assert.match(
+      document.querySelector(".assembly-drop-hint").textContent,
+      /뒤에/,
+    );
+    await act(async () =>
+      drag(document.querySelectorAll(".assembly-draft-page")[1], "drop", {
+        clientX: 900,
+      }),
+    );
+    assert.equal(
+      document.querySelector(".assembly-drop-hint"),
+      null,
+      "drop clears the target indicator",
+    );
+    await act(async () =>
+      drag(document.querySelectorAll(".assembly-draft-page")[1], "dragstart"),
+    );
+    await act(async () =>
+      drag(document.querySelectorAll(".assembly-draft-page")[0], "dragover", {
+        clientX: 100,
+      }),
+    );
+    assert.ok(
+      document.querySelector(".assembly-draft-page.drop-before"),
+      "the first insertion position is indicated",
+    );
+    await act(async () =>
+      drag(document.querySelectorAll(".assembly-draft-page")[1], "dragend"),
+    );
+    assert.equal(
+      document.querySelector(".assembly-drop-hint"),
+      null,
+      "cancelling a drag clears the target without reordering",
+    );
     assert.match(
       document.querySelector(".assembly-draft-page").textContent,
       /수업자료_예제.pdf/,
@@ -548,8 +607,8 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       "slide drawing is retained in the downloaded PDF",
     );
     await written.document.destroy();
-    await click("새로 만들기");
-    await click("새로 시작");
+    await click("새 작업");
+    await click("새 작업 시작");
     assert.equal(document.querySelectorAll(".thumbnail").length, 0);
     await click("파일 없이 먼저 둘러보기");
     for (let i = 0; i < 20 && document.querySelector(".busy-indicator"); i++)
@@ -676,8 +735,8 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       3,
       "single mode can edit another page without reopening settings",
     );
-    await click("새로 만들기");
-    await click("새로 시작");
+    await click("새 작업");
+    await click("새 작업 시작");
     assert.deepEqual(errors, [], "no React runtime errors");
   } finally {
     await act(async () => root.unmount());
