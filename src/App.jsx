@@ -47,7 +47,6 @@ import {
   sourcePages,
   exportPdf,
   extractText,
-  createDemoPdf,
   applyRedaction,
   downloadPdf,
   uid,
@@ -277,29 +276,6 @@ export default function App({ pdfjs, createOcrWorker }) {
           title: "파일 가져오기 안내",
           message: errors.join("\n"),
         });
-    } finally {
-      operation.current = false;
-      setBusy("");
-    }
-  };
-  const openDemo = async () => {
-    if (operation.current) return;
-    operation.current = true;
-    setBusy("예제 문서를 준비하는 중…");
-    try {
-      const source = await loadSource(
-        await createDemoPdf(),
-        "수업자료_예제.pdf",
-        pdfjs,
-      );
-      sources.current.set(source.id, source);
-      const added = await sourcePages(source);
-      commit([...pagesRef.current, ...added]);
-      setSelected(new Set([added[0].id]));
-      setActiveId(added[0].id);
-      notify("예제 문서를 열었습니다. 편집 도구를 사용해 보세요.");
-    } catch (e) {
-      notify(`예제 문서를 열지 못했습니다: ${e.message}`, true);
     } finally {
       operation.current = false;
       setBusy("");
@@ -1239,22 +1215,11 @@ export default function App({ pdfjs, createOcrWorker }) {
                     />
                   ) : (
                     <div className="empty-state">
-                      <div className="empty-icon">
-                        <FilePdf size={46} weight="light" />
-                      </div>
-                      <span className="eyebrow">
-                        LESS PAPERWORK, MORE TEACHING
-                      </span>
                       <h1>
                         수업 준비가
                         <br />
                         <em>조금 더 가벼워지도록.</em>
                       </h1>
-                      <p>
-                        여러 PDF를 하나로 모으고, 필요한 만큼 편집하세요.
-                        <br />
-                        수업에서 바로 쓰는 필기 도구까지 한곳에.
-                      </p>
                       <button
                         className="upload-zone"
                         disabled={!!busy}
@@ -1266,13 +1231,6 @@ export default function App({ pdfjs, createOcrWorker }) {
                           또는 클릭해서 파일 선택 · 여러 파일 추가 가능
                         </span>
                         <span className="file-limit">파일당 최대 100MB</span>
-                      </button>
-                      <button
-                        className="demo-button"
-                        onClick={openDemo}
-                        disabled={!!busy}
-                      >
-                        파일 없이 먼저 둘러보기 <ArrowRight size={16} />
                       </button>
                       <div className="empty-features">
                         <span>

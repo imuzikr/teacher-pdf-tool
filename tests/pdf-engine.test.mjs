@@ -1,3 +1,4 @@
+import { createTestPdf } from "./pdf-fixture.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -18,7 +19,6 @@ import {
   drawAnnotations,
   toBasePoint,
   rotatedSize,
-  createDemoPdf,
 } from "../src/pdf-engine.js";
 
 import {
@@ -253,9 +253,9 @@ test("pointer coordinates map through every quarter-turn", () => {
   assert.deepEqual(toBasePoint(0.2, 0.3, 270), { x: 0.7, y: 0.2 });
 });
 
-test("built-in sample is a real three-page searchable PDF", async () => {
+test("test fixture is a real three-page searchable PDF", async () => {
   const source = await loadSource(
-    await createDemoPdf(),
+    await createTestPdf(),
     "sample.pdf",
     renderer,
   );

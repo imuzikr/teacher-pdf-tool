@@ -1,3 +1,4 @@
+import { createTestPdf } from "./pdf-fixture.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
@@ -11,7 +12,6 @@ import {
 import { createServer } from "vite";
 import { resolve } from "node:path";
 import {
-  createDemoPdf,
   loadSource,
   sourcePages,
   extractText,
@@ -210,17 +210,40 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     );
     assert.match(actionPanel.querySelector(".brand").textContent, /My PDF/);
 
-    await click("파일 없이 먼저 둘러보기");
+    const importTestPdf = async () => {
+      const input = document.querySelector("input[type=file]");
+      const data = await createTestPdf();
+      Object.defineProperty(input, "files", {
+        configurable: true,
+        value: [
+          {
+            name: "수업자료_예제.pdf",
+            size: data.length,
+            arrayBuffer: async () => data.slice().buffer,
+          },
+        ],
+      });
+      await act(async () =>
+        input.dispatchEvent(new window.Event("change", { bubbles: true })),
+      );
+    };
+    assert.equal(document.querySelector(".demo-button"), null);
+    assert.equal(document.querySelector(".empty-icon"), null);
+    assert.doesNotMatch(
+      document.body.textContent,
+      /LESS PAPERWORK|여러 PDF를 하나로|파일 없이 먼저 둘러보기/,
+    );
+    await importTestPdf();
     for (let i = 0; i < 20 && document.querySelector(".busy-indicator"); i++)
       await settle();
     assert.equal(document.querySelectorAll(".thumbnail").length, 3);
     assert.equal(
       document.querySelector(".page-error"),
       null,
-      "sample renders successfully",
+      "imported PDF renders successfully",
     );
     const fileInput = document.querySelector("input[type=file]");
-    const bytes = await createDemoPdf();
+    const bytes = await createTestPdf();
     Object.defineProperty(fileInput, "files", {
       value: [
         {
@@ -610,7 +633,7 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     await click("새 작업");
     await click("새 작업 시작");
     assert.equal(document.querySelectorAll(".thumbnail").length, 0);
-    await click("파일 없이 먼저 둘러보기");
+    await importTestPdf();
     for (let i = 0; i < 20 && document.querySelector(".busy-indicator"); i++)
       await settle();
     await click("개인정보 가리기");
