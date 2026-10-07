@@ -644,6 +644,7 @@ input[type="radio"] {
 }
 .empty-features {
   display: flex;
+  margin-top: 24px;
   gap: 27px;
   color: #748b6d;
   font-size: 11px;
