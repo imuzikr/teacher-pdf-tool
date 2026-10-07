@@ -30,7 +30,6 @@ import {
   LockKey,
   X,
   Check,
-  CaretDown,
   Info,
   Keyboard,
   ArrowsDownUp,
@@ -140,7 +139,6 @@ export default function App({ pdfjs, createOcrWorker }) {
   const [historyVersion, setHistoryVersion] = useState(0);
   const [signature, setSignature] = useState(null);
   const [textValue, setTextValue] = useState("");
-  const [columns, setColumns] = useState(1);
   const [viewerSize, setViewerSize] = useState({ width: 1000, height: 800 });
   const past = useRef([]);
   const future = useRef([]);
@@ -985,7 +983,7 @@ export default function App({ pdfjs, createOcrWorker }) {
           </aside>
         )}
         <main
-          className={`workspace ${assemblyView && !slide ? "assembly-workspace" : ""}`}
+          className={`workspace ${assemblyView && !slide ? "assembly-workspace" : !slide ? "editor-workspace" : ""}`}
         >
           {assemblyView && !slide ? (
             <PdfAssembler
@@ -1004,11 +1002,14 @@ export default function App({ pdfjs, createOcrWorker }) {
           ) : (
             <>
               {!slide && (
-                <aside className="sidebar" aria-label="페이지 목록">
-                  <div className="sidebar-title">
+                <aside className="page-strip" aria-label="페이지 목록">
+                  <div className="page-strip-heading">
                     <div>
                       <strong>페이지</strong>
                       <span>{pages.length ? `${pages.length}쪽` : "0쪽"}</span>
+                      <span className="page-strip-guide">
+                        드래그해서 순서 변경 · 가로로 스크롤
+                      </span>
                     </div>
                     <button
                       className="text-button"
@@ -1026,32 +1027,16 @@ export default function App({ pdfjs, createOcrWorker }) {
                         : "전체 선택"}
                     </button>
                   </div>
-                  <div className="sidebar-guide">
-                    <span>드래그해서 순서 변경</span>
-                    <label className="columns-control">
-                      <ArrowsDownUp size={14} />
-                      <select
-                        aria-label="썸네일 열 수"
-                        value={columns}
-                        onChange={(e) => setColumns(Number(e.target.value))}
-                      >
-                        <option value="1">1열</option>
-                        <option value="2">2열</option>
-                      </select>
-                      <CaretDown size={11} />
-                    </label>
-                  </div>
                   {!pages.length ? (
-                    <div className="sidebar-empty">
-                      <FilePdf size={34} weight="thin" />
-                      <p>
-                        문서를 추가하면
-                        <br />
-                        페이지가 여기에 나타나요
-                      </p>
-                    </div>
+                    <p className="page-strip-empty">
+                      문서를 추가하면 페이지가 여기에 나타나요
+                    </p>
                   ) : (
-                    <div className={`thumbnails columns-${columns}`}>
+                    <div
+                      className="thumbnails page-strip-list"
+                      tabIndex={0}
+                      aria-label="페이지 미리보기 · 가로 스크롤"
+                    >
                       {pages.map((p, i) => (
                         <div
                           className={`thumbnail ${selected.has(p.id) ? "selected" : ""} ${p.id === page?.id ? "current" : ""}`}
@@ -1105,11 +1090,17 @@ export default function App({ pdfjs, createOcrWorker }) {
                             disabled={!!busy}
                             onClick={(e) => selectPage(p, e)}
                           >
-                            <PageCanvas
-                              page={p}
-                              width={columns === 1 ? 178 : 76}
-                              thumbnail
-                            />
+                            <div className="page-strip-preview">
+                              <PageCanvas
+                                page={p}
+                                width={Math.min(
+                                  96,
+                                  (124 * rotatedSize(p).width) /
+                                    rotatedSize(p).height,
+                                )}
+                                thumbnail
+                              />
+                            </div>
                             <span>{i + 1}</span>
                           </button>
                           {p.annotations.length > 0 && (
@@ -1124,10 +1115,6 @@ export default function App({ pdfjs, createOcrWorker }) {
                       ))}
                     </div>
                   )}
-                  <div className="sidebar-bottom">
-                    <ShieldCheck size={15} />
-                    <span>내 문서는 내 브라우저에</span>
-                  </div>
                 </aside>
               )}
 
