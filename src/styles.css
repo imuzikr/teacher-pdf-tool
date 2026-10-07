@@ -1850,6 +1850,9 @@ input[type="radio"] {
 .assembly-source-page,
 .assembly-draft-page {
   flex: 0 0 137px;
+  width: 137px;
+  min-width: 0;
+  max-width: 137px;
   padding: 12px;
   border: 1px solid #dce6df;
   border-radius: 12px;
@@ -1865,6 +1868,15 @@ input[type="radio"] {
   flex-direction: column;
   gap: 8px;
   cursor: pointer;
+  min-width: 0;
+}
+.assembly-preview-box {
+  width: 105px;
+  height: 160px;
+  flex: 0 0 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .assembly-source-page input {
   align-self: flex-start;
@@ -1911,9 +1923,11 @@ input[type="radio"] {
   display: flex;
   flex-direction: column;
   gap: 7px;
+  height: 295px;
 }
 .assembly-draft-page strong {
   font-size: 13px;
+  line-height: 18px;
 }
 .assembly-draft-page small {
   font-size: 11px;
@@ -1921,10 +1935,15 @@ input[type="radio"] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  line-height: 16px;
 }
 .assembly-page-actions {
   display: flex;
   justify-content: space-between;
+  margin-top: auto;
 }
 .assembly-page-actions .icon-button {
   width: 30px;

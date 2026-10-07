@@ -8,11 +8,26 @@ import {
   Trash,
 } from "@phosphor-icons/react";
 import { PageCanvas, ToolButton } from "./components.jsx";
+import { rotatedSize } from "./pdf-engine.js";
+import useDragAutoScroll from "./useDragAutoScroll.js";
 import {
   addAssemblyPages,
   moveAssemblyEntry,
   resolveAssemblyPages,
 } from "./assembly.js";
+
+function AssemblyPreview({ page }) {
+  const { width, height } = rotatedSize(page);
+  return (
+    <div className="assembly-preview-box">
+      <PageCanvas
+        page={page}
+        width={Math.min(105, (150 * width) / height)}
+        thumbnail
+      />
+    </div>
+  );
+}
 
 export default function PdfAssembler({
   pages,
@@ -26,7 +41,9 @@ export default function PdfAssembler({
 }) {
   const [filename, setFilename] = useState("SenPDF_새문서.pdf");
   const [dropOver, setDropOver] = useState(false);
+  const root = useRef(null);
   const dragging = useRef(null);
+  useDragAutoScroll(root, dragging, busy);
   const groups = [...new Set(pages.map((page) => page.source))];
   const draftPages = resolveAssemblyPages(entries, pages);
   const count = pages.filter((page) => selected.has(page.id)).length;
@@ -56,7 +73,7 @@ export default function PdfAssembler({
     setDropOver(false);
   };
   return (
-    <div className="pdf-assembler">
+    <div className="pdf-assembler" ref={root}>
       <div className="assembler-heading">
         <div>
           <h2>페이지 추출·병합</h2>
@@ -135,7 +152,7 @@ export default function PdfAssembler({
                         }
                         aria-label={`${source.name} 원본 ${page.index + 1}쪽 선택`}
                       />
-                      <PageCanvas page={page} width={105} thumbnail />
+                      <AssemblyPreview page={page} />
                       <span>원본 {page.index + 1}쪽</span>
                     </label>
                   </div>
@@ -209,7 +226,7 @@ export default function PdfAssembler({
                 }}
                 onDrop={(event) => drop(event, index)}
               >
-                <PageCanvas page={draftPages[index]} width={105} thumbnail />
+                <AssemblyPreview page={draftPages[index]} />
                 <strong>새 문서 {index + 1}쪽</strong>
                 <small title={entry.page.source.name}>
                   {entry.page.source.name}

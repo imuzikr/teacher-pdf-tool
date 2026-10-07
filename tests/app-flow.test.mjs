@@ -264,21 +264,75 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     await act(async () =>
       document.querySelector('[aria-label="새 문서 2쪽 제거"]').click(),
     );
-    const drag = (element, type) => {
+    const drag = (element, type, coordinates = {}) => {
       const event = new window.MouseEvent(type, {
         bubbles: true,
         cancelable: true,
+        clientX: 400,
+        clientY: 400,
+        ...coordinates,
       });
       Object.defineProperty(event, "dataTransfer", {
         value: { setData() {}, files: [], types: [] },
       });
       element.dispatchEvent(event);
     };
-    await act(async () => {
-      drag(document.querySelector(".assembly-source-page"), "dragstart");
-      drag(document.querySelector(".assembly-destination"), "dragover");
-      drag(document.querySelector(".assembly-destination"), "drop");
-    });
+    const originalRaf = window.requestAnimationFrame;
+    const originalCancel = window.cancelAnimationFrame;
+    const frames = new Map();
+    let frameId = 0;
+    window.requestAnimationFrame = (callback) => {
+      frames.set(++frameId, callback);
+      return frameId;
+    };
+    window.cancelAnimationFrame = (id) => frames.delete(id);
+    const advance = (time) => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(time);
+    };
+    try {
+      await act(async () => {
+        drag(document.querySelector(".assembly-source-page"), "dragstart");
+        // Scrolling must start before the destination becomes visible, even
+        // when the pointer is over the footer rather than the drop area.
+        drag(document.body, "dragover", { clientY: window.innerHeight - 2 });
+        for (let time = 0; time <= 320; time += 16) advance(time);
+        const workspace = document.querySelector(".assembly-workspace");
+        assert.ok(
+          workspace.scrollTop > 200,
+          "drag near the bottom continuously scrolls toward the destination",
+        );
+        const bottomPosition = workspace.scrollTop;
+        drag(document.body, "dragover", { clientY: 400 });
+        advance(336);
+        assert.equal(
+          workspace.scrollTop,
+          bottomPosition,
+          "moving away from the edge pauses scrolling",
+        );
+        drag(document.body, "dragover", { clientY: 2 });
+        advance(352);
+        assert.ok(
+          workspace.scrollTop < bottomPosition,
+          "the top edge scrolls upward",
+        );
+        drag(document.querySelector(".assembly-destination"), "drop");
+        assert.equal(
+          frames.size,
+          0,
+          "drop cancels the animation without preventing page addition",
+        );
+        drag(document.querySelector(".assembly-source-page"), "dragstart");
+        drag(document.body, "dragover", { clientY: window.innerHeight - 2 });
+        advance(368);
+        drag(document.querySelector(".assembly-source-page"), "dragend");
+        assert.equal(frames.size, 0, "cancelled drags stop auto scrolling");
+      });
+    } finally {
+      window.requestAnimationFrame = originalRaf;
+      window.cancelAnimationFrame = originalCancel;
+    }
     assert.equal(
       document.querySelectorAll(".assembly-draft-page").length,
       2,
