@@ -1009,7 +1009,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   return (
     <div
       ref={workspace}
-      className={`app ${slide ? "presentation-mode" : ""} ${presenting ? "fullscreen-presentation" : ""}`}
+      className={`app ${slide ? "presentation-mode" : ""} ${presenting ? "fullscreen-presentation" : ""} ${slide && tool === "laser" ? "laser-mode" : ""}`}
       onDragOver={(e) => {
         if (Array.from(e.dataTransfer.types).includes("Files")) {
           e.preventDefault();
@@ -1480,7 +1480,7 @@ export default function App({ pdfjs, createOcrWorker }) {
                         <section
                           className="practice-pane"
                           aria-label="왼쪽 참고 페이지"
-                          style={{ width: (practicePaneWidth * zoom) / 100 }}
+                          style={{ width: practiceWidth(practiceReference) }}
                         >
                           <div className="practice-pane-label">
                             참고 페이지 · {pages.indexOf(practiceReference) + 1}
@@ -1511,7 +1511,7 @@ export default function App({ pdfjs, createOcrWorker }) {
                         <section
                           className="practice-pane"
                           aria-label="오른쪽 연습 페이지"
-                          style={{ width: (practicePaneWidth * zoom) / 100 }}
+                          style={{ width: practiceWidth(page) }}
                         >
                           <div className="practice-pane-label">
                             연습 페이지 · {activeIndex + 1}쪽

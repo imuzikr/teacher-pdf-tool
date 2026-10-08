@@ -2376,7 +2376,7 @@ input[type="radio"] {
 .two-page-spread {
   display: flex;
   flex-shrink: 0;
-  gap: 24px;
+  gap: 0;
   min-width: 100%;
   width: max-content;
   align-items: flex-start;
@@ -2401,4 +2401,13 @@ input[type="radio"] {
   height: 7px;
   border-right: 2px solid #638d72;
   border-bottom: 2px solid #638d72;
+}
+
+.laser-mode,
+.laser-mode * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.two-page-spread .page-canvas {
+  box-shadow: none;
 }

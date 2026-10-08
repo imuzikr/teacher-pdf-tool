@@ -895,11 +895,34 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       "ink stays aligned when capture resizes",
     );
     await click("레이저 포인터");
+    let capturedLaserPointer;
+    floatingDrawing.setPointerCapture = (id) => {
+      capturedLaserPointer = id;
+    };
+    const laserDown = new window.MouseEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 100,
+      clientY: 100,
+      button: 0,
+    });
+    Object.defineProperty(laserDown, "pointerId", { value: 8 });
+    await act(async () => floatingDrawing.dispatchEvent(laserDown));
+    assert.ok(
+      laserDown.defaultPrevented,
+      "laser drag suppresses browser selection",
+    );
+    assert.equal(
+      capturedLaserPointer,
+      8,
+      "laser keeps tracking after leaving capture bounds",
+    );
+    assert.ok(document.querySelector(".laser-mode"));
     await act(async () =>
       floatingDrawing.dispatchEvent(
         new window.MouseEvent("pointermove", {
           bubbles: true,
-          clientX: 150,
+          clientX: 650,
           clientY: 100,
         }),
       ),
@@ -949,6 +972,14 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       document.querySelectorAll(".two-page-spread .page-canvas").length,
       2,
     );
+    for (const pane of document.querySelectorAll(".practice-pane")) {
+      assert.equal(
+        pane.style.width,
+        pane.querySelector(".page-canvas").style.width,
+        "page wrapper creates no inner gap",
+      );
+    }
+
     await click("캡처 모드");
     const leftCanvas = document.querySelector(
       '[aria-label="왼쪽 참고 페이지"] .annotation-canvas',

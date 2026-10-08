@@ -205,6 +205,13 @@ export default function PinnedCapture({
               touchAction: "none",
             }}
             onPointerDown={(e) => {
+              if (tool === "laser") {
+                e.preventDefault();
+                e.stopPropagation();
+                e.currentTarget.setPointerCapture?.(e.pointerId);
+                onLaserMove?.(e);
+                return;
+              }
               if (
                 e.button !== 0 ||
                 !["pen", "highlight", "erase"].includes(tool)
