@@ -2411,3 +2411,15 @@ input[type="radio"] {
 .two-page-spread .page-canvas {
   box-shadow: none;
 }
+
+.tool-shape .annotation-canvas {
+  cursor: crosshair;
+  touch-action: none;
+}
+.drawing-options select {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: white;
+  color: #315c43;
+}

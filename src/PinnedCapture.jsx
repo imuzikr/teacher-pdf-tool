@@ -1,3 +1,4 @@
+import { shapePoints, shapePath, hitShape } from "./shapes.js";
 import React, { useRef, useState, useEffect } from "react";
 import { Minus, Plus, X, ArrowsDownUp } from "@phosphor-icons/react";
 
@@ -8,6 +9,7 @@ export default function PinnedCapture({
   tool,
   color,
   size,
+  shapeKind,
   onLaserMove,
   onLaserLeave,
 }) {
@@ -36,6 +38,8 @@ export default function PinnedCapture({
     };
   };
   const strokeHit = (stroke, p) => {
+    if (stroke.type === "shape")
+      return hitShape(stroke.points, p, aspect, stroke.size / 2 + 0.015);
     const q = { x: p.x, y: p.y / aspect };
     return stroke.points.some((a, i) => {
       const b = stroke.points[i + 1] || a;
@@ -197,9 +201,13 @@ export default function PinnedCapture({
             aria-label="캡처 위 필기 영역"
             viewBox={`0 0 1000 ${1000 / aspect}`}
             style={{
-              pointerEvents: ["pen", "highlight", "erase", "laser"].includes(
-                tool,
-              )
+              pointerEvents: [
+                "pen",
+                "highlight",
+                "shape",
+                "erase",
+                "laser",
+              ].includes(tool)
                 ? "auto"
                 : "none",
               touchAction: "none",
@@ -214,7 +222,7 @@ export default function PinnedCapture({
               }
               if (
                 e.button !== 0 ||
-                !["pen", "highlight", "erase"].includes(tool)
+                !["pen", "highlight", "shape", "erase"].includes(tool)
               )
                 return;
               e.preventDefault();
@@ -237,6 +245,8 @@ export default function PinnedCapture({
                 type: tool,
                 color,
                 size,
+                shapeKind,
+                origin: p,
                 points: [p],
               };
               setDraft(drawing.current);
@@ -249,7 +259,15 @@ export default function PinnedCapture({
               if (!drawing.current) return;
               drawing.current = {
                 ...drawing.current,
-                points: [...drawing.current.points, point(e)],
+                points:
+                  drawing.current.type === "shape"
+                    ? shapePoints(
+                        drawing.current.shapeKind,
+                        drawing.current.origin,
+                        point(e),
+                        aspect,
+                      )
+                    : [...drawing.current.points, point(e)],
               };
               setDraft(drawing.current);
             }}
@@ -257,7 +275,15 @@ export default function PinnedCapture({
               if (!drawing.current) return;
               const stroke = {
                 ...drawing.current,
-                points: [...drawing.current.points, point(e)],
+                points:
+                  drawing.current.type === "shape"
+                    ? shapePoints(
+                        drawing.current.shapeKind,
+                        drawing.current.origin,
+                        point(e),
+                        aspect,
+                      )
+                    : [...drawing.current.points, point(e)],
               };
               drawing.current = null;
               setDraft(null);
@@ -269,22 +295,49 @@ export default function PinnedCapture({
             }}
             onPointerLeave={onLaserLeave}
           >
-            {[...strokes, ...(draft ? [draft] : [])].map((stroke) => (
-              <polyline
-                key={stroke.id}
-                points={stroke.points
-                  .map((p) => `${p.x * 1000},${(p.y * 1000) / aspect}`)
-                  .join(" ")}
-                fill="none"
-                stroke={stroke.color}
-                strokeWidth={
-                  stroke.size * 1000 * (stroke.type === "highlight" ? 4 : 1)
-                }
-                opacity={stroke.type === "highlight" ? 0.35 : 1}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            ))}
+            {[...strokes, ...(draft ? [draft] : [])].map((stroke) =>
+              stroke.type === "shape" ? (
+                <g key={stroke.id} className="capture-shape">
+                  <path
+                    d={shapePath(stroke.points, aspect)}
+                    fill="none"
+                    stroke={stroke.color}
+                    strokeWidth={stroke.size * 1000}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  {stroke.points
+                    .filter((p) => p.label)
+                    .map((p) => (
+                      <text
+                        key={p.label}
+                        x={p.x * 1000}
+                        y={(p.y * 1000) / aspect}
+                        fontSize="25"
+                        fill={stroke.color}
+                        dominantBaseline="middle"
+                      >
+                        {p.label}
+                      </text>
+                    ))}
+                </g>
+              ) : (
+                <polyline
+                  key={stroke.id}
+                  points={stroke.points
+                    .map((p) => `${p.x * 1000},${(p.y * 1000) / aspect}`)
+                    .join(" ")}
+                  fill="none"
+                  stroke={stroke.color}
+                  strokeWidth={
+                    stroke.size * 1000 * (stroke.type === "highlight" ? 4 : 1)
+                  }
+                  opacity={stroke.type === "highlight" ? 0.35 : 1}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              ),
+            )}
           </svg>
         </div>
       </div>

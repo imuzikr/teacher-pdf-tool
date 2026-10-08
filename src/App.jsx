@@ -20,6 +20,7 @@ import {
   Cursor,
   PencilSimple,
   Highlighter,
+  Shapes,
   TextT,
   Eraser,
   Minus,
@@ -36,6 +37,7 @@ import {
 } from "@phosphor-icons/react";
 import { ToolButton, Modal, PageCanvas, SignaturePad } from "./components.jsx";
 import PdfAssembler from "./PdfAssembler.jsx";
+import { shapeOptions, shapePoints, hitShape } from "./shapes.js";
 import PinnedCapture from "./PinnedCapture.jsx";
 import { createBlankPdf, captureRegion } from "./slide-tools.js";
 import {
@@ -82,6 +84,13 @@ const readableSize = (bytes) =>
     : `${Math.round(bytes / 1024)}KB`;
 
 function annotationHit(a, p, page) {
+  if (a.type === "shape")
+    return hitShape(
+      a.points,
+      p,
+      page.width / page.height,
+      Math.max(a.size, 0.018),
+    );
   if (a.points)
     return a.points.some(
       (q) =>
@@ -122,6 +131,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   const [laserPoint, setLaserPoint] = useState(null);
   const [laserTrail, setLaserTrail] = useState([]);
   const [tool, setTool] = useState("move");
+  const [shapeKind, setShapeKind] = useState("line");
   const [color, setColor] = useState("#087f5b");
   const [size, setSize] = useState(0.004);
   const [fontSize, setFontSize] = useState(0.025);
@@ -769,16 +779,17 @@ export default function App({ pdfjs, createOcrWorker }) {
         setDraft(hit);
       } else
         notify(
-          "이 앱에서 추가한 필기·텍스트·서명을 드래그해 이동할 수 있습니다.",
+          "이 앱에서 추가한 필기·도형·텍스트·서명을 드래그해 이동할 수 있습니다.",
         );
       return;
     }
-    if (!["pen", "highlight", "redact"].includes(tool)) return;
+    if (!["pen", "highlight", "redact", "shape"].includes(tool)) return;
     const annotation = {
       id: uid(),
       type: tool,
       color: tool === "redact" ? "#ffffff" : color,
       size,
+      ...(tool === "shape" ? { shapeKind } : {}),
       ...(tool === "redact" ? { ...p, width: 0, height: 0 } : { points: [p] }),
     };
     pointer.current = {
@@ -838,6 +849,7 @@ export default function App({ pdfjs, createOcrWorker }) {
         ? {
             ...a,
             points: a.points.map((q) => ({
+              ...q,
               x: q.x + boundedX,
               y: q.y + boundedY,
             })),
@@ -848,15 +860,25 @@ export default function App({ pdfjs, createOcrWorker }) {
     }
     const a = current.annotation;
     current.annotation =
-      a.type === "redact"
+      a.type === "shape"
         ? {
             ...a,
-            x: Math.min(p.x, current.origin.x),
-            y: Math.min(p.y, current.origin.y),
-            width: Math.abs(p.x - current.origin.x),
-            height: Math.abs(p.y - current.origin.y),
+            points: shapePoints(
+              a.shapeKind,
+              current.origin,
+              p,
+              page.width / page.height,
+            ),
           }
-        : { ...a, points: [...a.points, p] };
+        : a.type === "redact"
+          ? {
+              ...a,
+              x: Math.min(p.x, current.origin.x),
+              y: Math.min(p.y, current.origin.y),
+              width: Math.abs(p.x - current.origin.x),
+              height: Math.abs(p.y - current.origin.y),
+            }
+          : { ...a, points: [...a.points, p] };
     setDraft(current.annotation);
   };
   const pointerUp = () => {
@@ -880,6 +902,18 @@ export default function App({ pdfjs, createOcrWorker }) {
     }
     const a = current.annotation;
     if (a.type === "redact" && (a.width < 0.003 || a.height < 0.003)) return;
+    if (
+      a.type === "shape" &&
+      (a.points.length < 2 ||
+        !a.points.some(
+          (p) =>
+            Math.hypot(
+              p.x - a.points[0].x,
+              ((p.y - a.points[0].y) * page.height) / page.width,
+            ) > 0.005,
+        ))
+    )
+      return;
     if (a.type === "redact") {
       commit(
         applyRedaction(
@@ -934,6 +968,7 @@ export default function App({ pdfjs, createOcrWorker }) {
         v: "select",
         p: "pen",
         h: "highlight",
+        g: "shape",
         t: "text",
         e: "erase",
       };
@@ -1613,13 +1648,31 @@ export default function App({ pdfjs, createOcrWorker }) {
                     : tool === "move"
                       ? "드래그로 화면을 이동하세요. 방향키로 페이지를 넘길 수 있어요."
                       : tool === "select"
-                        ? "추가한 필기·텍스트·서명을 드래그해 이동하세요."
+                        ? "추가한 필기·도형·텍스트·서명을 드래그해 이동하세요."
                         : tool === "erase"
-                          ? "지울 필기나 텍스트를 클릭하세요."
-                          : "문서 위에 바로 필기하세요."}
+                          ? "지울 필기·도형·텍스트를 클릭하세요."
+                          : tool === "shape"
+                            ? "도형을 선택하고 문서 위에서 드래그하세요."
+                            : "문서 위에 바로 필기하세요."}
               </span>
-              {["pen", "highlight", "text"].includes(tool) && (
+              {["pen", "highlight", "text", "shape"].includes(tool) && (
                 <div className="drawing-options">
+                  {tool === "shape" && (
+                    <label>
+                      도형{" "}
+                      <select
+                        aria-label="도형 종류"
+                        value={shapeKind}
+                        onChange={(e) => setShapeKind(e.target.value)}
+                      >
+                        {shapeOptions.map(([value, title]) => (
+                          <option key={value} value={value}>
+                            {title}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   <label>
                     색상{" "}
                     <input
@@ -1672,6 +1725,7 @@ export default function App({ pdfjs, createOcrWorker }) {
                   [Cursor, "선택", "select"],
                   [PencilSimple, "펜", "pen"],
                   [Highlighter, "형광펜", "highlight"],
+                  [Shapes, "도형", "shape"],
                   [TextT, "텍스트", "text"],
                   [Eraser, "지우개", "erase"],
                 ].map(([Icon, label, value]) => (
@@ -1785,6 +1839,23 @@ export default function App({ pdfjs, createOcrWorker }) {
                   빈 페이지 추가
                 </ToolButton>
               )}
+              {presenting && (
+                <ToolButton
+                  icon={Presentation}
+                  disabled={!!busy}
+                  onClick={() => {
+                    setPresenting(false);
+                    setTool("move");
+                    setDraft(null);
+                    setCaptureRect(null);
+                    setLaserPoint(null);
+                    setLaserTrail([]);
+                    pointer.current = null;
+                  }}
+                >
+                  슬라이드 재생으로 돌아가기
+                </ToolButton>
+              )}
               <ToolButton
                 icon={SignOut}
                 className="primary"
@@ -1860,6 +1931,7 @@ export default function App({ pdfjs, createOcrWorker }) {
             tool={tool}
             color={color}
             size={size}
+            shapeKind={shapeKind}
             onLaserMove={moveLaser}
             onLaserLeave={clearLaser}
             onChange={(next) =>
@@ -2546,6 +2618,7 @@ export default function App({ pdfjs, createOcrWorker }) {
                   ["선택", "V"],
                   ["펜", "P"],
                   ["형광펜", "H"],
+                  ["도형", "G"],
                   ["텍스트", "T"],
                   ["지우개", "E"],
                   ["레이저 포인터 켜기 / 끄기", "L"],

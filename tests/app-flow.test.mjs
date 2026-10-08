@@ -51,6 +51,20 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     configurable: true,
   });
   const canvases = new WeakMap();
+  // Browsers reset the bitmap even when assigning the same canvas dimensions.
+  for (const property of ["width", "height"]) {
+    const descriptor = Object.getOwnPropertyDescriptor(
+      window.HTMLCanvasElement.prototype,
+      property,
+    );
+    Object.defineProperty(window.HTMLCanvasElement.prototype, property, {
+      ...descriptor,
+      set(value) {
+        descriptor.set.call(this, value);
+        canvases.delete(this);
+      },
+    });
+  }
   function backing(element) {
     let canvas = canvases.get(element);
     if (!canvas) {
@@ -684,6 +698,16 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       ),
     );
     assert.ok(document.querySelector(".laser-active"));
+    await click("슬라이드 재생으로 돌아가기");
+    assert.ok(document.querySelector(".presentation-mode"));
+    assert.equal(document.querySelector(".fullscreen-presentation"), null);
+    assert.ok(document.querySelector(".slide-options"));
+    assert.equal(
+      document.querySelector(".slide-page-number").textContent,
+      pageBefore,
+    );
+    assert.equal(document.querySelector("[role=dialog]"), null);
+    await click("프레젠테이션");
     await act(async () =>
       document.dispatchEvent(
         new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
@@ -713,6 +737,79 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
         slideCanvas.dispatchEvent(event);
       }
     });
+    await click("도형");
+    const shapeSelect = document.querySelector('[aria-label="도형 종류"]');
+    assert.deepEqual(
+      [...shapeSelect.options].map((o) => o.textContent),
+      [
+        "직선",
+        "원",
+        "삼각형",
+        "사각형",
+        "오각형",
+        "육각형",
+        "2차원 좌표",
+        "3차원 좌표",
+      ],
+    );
+    await act(async () => {
+      shapeSelect.value = "rectangle";
+      shapeSelect.dispatchEvent(new window.Event("change", { bubbles: true }));
+    });
+    await act(async () => {
+      for (const [name, x, y] of [
+        ["pointerdown", 0.6, 0.2],
+        ["pointermove", 0.85, 0.4],
+        ["pointerup", 0.85, 0.4],
+      ]) {
+        const e = new window.MouseEvent(name, {
+          bubbles: true,
+          clientX: x * slideRect.width,
+          clientY: y * slideRect.height,
+          button: 0,
+        });
+        Object.defineProperty(e, "pointerId", { value: 20 });
+        slideCanvas.dispatchEvent(e);
+      }
+    });
+    await settle();
+    const withShape = slideCanvas.toDataURL();
+    await click("지우개");
+    await act(async () => {
+      const e = new window.MouseEvent("pointerdown", {
+        bubbles: true,
+        clientX: 0.725 * slideRect.width,
+        clientY: 0.2 * slideRect.height,
+        button: 0,
+      });
+      Object.defineProperty(e, "pointerId", { value: 21 });
+      slideCanvas.dispatchEvent(e);
+    });
+    assert.notEqual(
+      slideCanvas.toDataURL(),
+      withShape,
+      "shape can be erased at the middle of its edge",
+    );
+    await click("취소");
+    const restoredShapePixel = slideCanvas
+      .getContext("2d")
+      .getImageData(
+        Math.round(slideCanvas.width * 0.725),
+        Math.round(slideCanvas.height * 0.2),
+        1,
+        1,
+      ).data;
+    assert.ok(
+      restoredShapePixel[1] > restoredShapePixel[0] + 40,
+      "undo restores erased shape",
+    );
+    await click("프레젠테이션");
+    await click("슬라이드 재생으로 돌아가기");
+    assert.equal(
+      document.querySelector("[role=dialog]"),
+      null,
+      "returning preserves edits without ending the session",
+    );
     await click("종료");
     assert.match(
       document.querySelector("[role=dialog] h2").textContent,
@@ -745,6 +842,18 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     assert.ok(
       penPixel[1] > penPixel[0] + 40,
       "slide drawing is retained in the downloaded PDF",
+    );
+    const shapePixel = writtenCanvas
+      .getContext("2d")
+      .getImageData(
+        Math.round(writtenCanvas.width * 0.725),
+        Math.round(writtenCanvas.height * 0.2),
+        1,
+        1,
+      ).data;
+    assert.ok(
+      shapePixel[1] > shapePixel[0] + 40,
+      "drawn shape survives PDF download",
     );
     await written.document.destroy();
     const baselineThumbnails = document.querySelectorAll(".thumbnail").length;
@@ -893,6 +1002,39 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       floatingDrawing.querySelector("polyline").getAttribute("points"),
       pointsBeforeZoom,
       "ink stays aligned when capture resizes",
+    );
+    await click("도형");
+    await act(async () => {
+      const select = document.querySelector('[aria-label="도형 종류"]');
+      select.value = "axes3d";
+      select.dispatchEvent(new window.Event("change", { bubbles: true }));
+    });
+    await act(async () => {
+      for (const [type, x, y] of [
+        ["pointerdown", 0.1, 0.1],
+        ["pointermove", 0.8, 0.8],
+        ["pointerup", 0.8, 0.8],
+      ]) {
+        const e = new window.MouseEvent(type, {
+          bubbles: true,
+          clientX: x * 400,
+          clientY: y * 200,
+          button: 0,
+        });
+        Object.defineProperty(e, "pointerId", { value: 22 });
+        floatingDrawing.dispatchEvent(e);
+      }
+    });
+    assert.ok(floatingDrawing.querySelector(".capture-shape path"));
+    assert.deepEqual(
+      [...floatingDrawing.querySelectorAll(".capture-shape text")].map(
+        (t) => t.textContent,
+      ),
+      ["x", "y", "z"],
+    );
+    assert.equal(
+      document.querySelector(".document-stage .annotation-canvas").toDataURL(),
+      pdfOverlayBeforeCaptureInk,
     );
     await click("레이저 포인터");
     let capturedLaserPointer;

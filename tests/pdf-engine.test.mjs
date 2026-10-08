@@ -1,3 +1,4 @@
+import { shapeOptions, shapePoints, hitShape } from "../src/shapes.js";
 import { createBlankPdf, captureRegion } from "../src/slide-tools.js";
 import { createTestPdf } from "./pdf-fixture.mjs";
 import test from "node:test";
@@ -400,4 +401,69 @@ test("region captures include annotations in visible rotated coordinates", async
     /영역/,
   );
   await source.document.destroy();
+});
+
+test("all eight shapes survive PDF export and preserve regular geometry", async () => {
+  for (const aspect of [0.5, 2]) {
+    const source = await loadSource(
+      await createBlankPdf(400, 400 / aspect),
+      "shapes.pdf",
+      renderer,
+    );
+    const pages = [];
+    for (const [kind] of shapeOptions) {
+      const [page] = await sourcePages(source);
+      const points = shapePoints(
+        kind,
+        { x: 0.2, y: 0.2 },
+        { x: 0.8, y: 0.8 },
+        aspect,
+      );
+      page.annotations = [
+        { id: kind, type: "shape", color: "#087f5b", size: 0.01, points },
+      ];
+      if (kind === "circle") {
+        const xs = points.map((p) => p.x),
+          ys = points.map((p) => p.y / aspect);
+        assert.ok(
+          Math.abs(
+            Math.max(...xs) -
+              Math.min(...xs) -
+              (Math.max(...ys) - Math.min(...ys)),
+          ) < 1e-6,
+        );
+      }
+      assert.ok(
+        hitShape(
+          points,
+          {
+            x: (points[0].x + points[1].x) / 2,
+            y: (points[0].y + points[1].y) / 2,
+          },
+          aspect,
+          0.01,
+        ),
+        `${kind} can be selected at the middle of its edge`,
+      );
+      pages.push(page);
+    }
+    const result = await loadSource(
+      await exportPdf(pages, { canvasFactory: () => createCanvas(1, 1) }),
+      "saved-shapes.pdf",
+      renderer,
+    );
+    const saved = await sourcePages(result);
+    assert.equal(saved.length, 8);
+    for (const page of saved) {
+      const canvas = await renderPage(page, 1, () => createCanvas(1, 1));
+      const pixels = canvas
+        .getContext("2d")
+        .getImageData(0, 0, canvas.width, canvas.height).data;
+      let green = 0;
+      for (let i = 0; i < pixels.length; i += 4)
+        if (pixels[i + 1] > pixels[i] + 40) green++;
+      assert.ok(green > 100, "each shape remains visible in the reopened PDF");
+    }
+    await Promise.all([source.document.destroy(), result.document.destroy()]);
+  }
 });

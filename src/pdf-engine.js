@@ -160,6 +160,20 @@ export async function drawAnnotations(
         if (a.points.length === 1)
           ctx.lineTo(a.points[0].x * w + 0.1, a.points[0].y * h);
         ctx.stroke();
+      } else if (a.type === "shape") {
+        ctx.beginPath();
+        a.points
+          .filter((p) => !p.label)
+          .forEach((p, i) => {
+            if (p.move || i === 0) ctx.moveTo(p.x * w, p.y * h);
+            else ctx.lineTo(p.x * w, p.y * h);
+          });
+        ctx.stroke();
+        ctx.font = `${w * 0.025}px Arial, sans-serif`;
+        ctx.textBaseline = "middle";
+        a.points
+          .filter((p) => p.label)
+          .forEach((p) => ctx.fillText(p.label, p.x * w, p.y * h));
       } else if (a.type === "text") {
         ctx.font = `${a.size * w}px Arial, "Noto Sans KR", sans-serif`;
         ctx.textBaseline = "top";
