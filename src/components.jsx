@@ -139,7 +139,6 @@ export function PageCanvas({
     if (!visible) return;
     let disposed = false;
     let task;
-    setDimensions(null);
     setError("");
     (async () => {
       const original = await page.source.document.getPage(page.index + 1);
@@ -153,19 +152,21 @@ export function PageCanvas({
         scale: (width / initial.width) * ratio,
         rotation: normalizeRotation(page.baseRotation + page.rotation),
       });
-      base.current.width = Math.ceil(viewport.width);
-      base.current.height = Math.ceil(viewport.height);
+      const rendered = document.createElement("canvas");
+      rendered.width = Math.ceil(viewport.width);
+      rendered.height = Math.ceil(viewport.height);
       task = original.render({
-        canvasContext: base.current.getContext("2d"),
+        canvasContext: rendered.getContext("2d"),
         viewport,
         background: "#fff",
       });
       await task.promise;
-      if (!disposed)
-        setDimensions({
-          width: base.current.width,
-          height: base.current.height,
-        });
+      if (disposed || !base.current) return;
+      // Keep the displayed bitmap while rendering; swap only complete frames.
+      base.current.width = rendered.width;
+      base.current.height = rendered.height;
+      base.current.getContext("2d").drawImage(rendered, 0, 0);
+      setDimensions({ width: rendered.width, height: rendered.height });
     })().catch((e) => {
       if (!disposed && e.name !== "RenderingCancelledException")
         setError(

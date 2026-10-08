@@ -2587,3 +2587,38 @@ input[type="radio"] {
     transition: none;
   }
 }
+
+.page-spread {
+  display: flex;
+  flex-shrink: 0;
+  min-width: 100%;
+  width: max-content;
+  align-items: flex-start;
+  justify-content: center;
+}
+.editing-pane .practice-pane-label {
+  color: #e4f5e8;
+  font-weight: 600;
+}
+.busy-indicator.inline-busy {
+  inset: auto;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  flex-direction: row;
+  gap: 10px;
+  padding: 10px 18px;
+  border: 1px solid #c6dacb;
+  border-radius: 12px;
+  background: #f4faf0eb;
+  backdrop-filter: none;
+  pointer-events: none;
+  font-size: 12px;
+}
+.busy-indicator.inline-busy small {
+  display: none;
+}
+.busy-indicator.inline-busy .spinner {
+  width: 18px;
+  height: 18px;
+}

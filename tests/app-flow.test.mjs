@@ -164,6 +164,13 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       await new Promise((r) => timer(r, 60));
     });
   }
+  async function inAct(operation) {
+    let result;
+    await act(async () => {
+      result = await operation();
+    });
+    return result;
+  }
   async function click(text) {
     const buttons = [
       ...(
@@ -487,14 +494,14 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       /수업자료_예제.pdf/,
     );
     await click("새 문서 PDF 저장");
-    const assembledSource = await loadSource(
-      await downloaded.arrayBuffer(),
-      "assembled.pdf",
-      renderer,
+    const assembledSource = await inAct(async () =>
+      loadSource(await downloaded.arrayBuffer(), "assembled.pdf", renderer),
     );
-    const assembledPages = await sourcePages(assembledSource);
+    const assembledPages = await inAct(async () =>
+      sourcePages(assembledSource),
+    );
     assert.equal(assembledPages.length, 2);
-    const assembledText = await extractText(assembledPages);
+    const assembledText = await inAct(async () => extractText(assembledPages));
     assert.match(assembledText, /Classroom Notes[\s\S]*Make it your own/);
     assert.doesNotMatch(assembledText, /What did we learn today/);
     await assembledSource.document.destroy();
@@ -502,10 +509,8 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       document.querySelector('[aria-label="새 문서 2쪽 제거"]').click(),
     );
     await click("새 문서 PDF 저장");
-    const singleSource = await loadSource(
-      await downloaded.arrayBuffer(),
-      "single.pdf",
-      renderer,
+    const singleSource = await inAct(async () =>
+      loadSource(await downloaded.arrayBuffer(), "single.pdf", renderer),
     );
     assert.equal(singleSource.document.numPages, 1, "single PDF extraction");
     await singleSource.document.destroy();
@@ -621,18 +626,16 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       downloaded,
       `save initiates a real PDF download; notice: ${document.querySelector(".toast")?.textContent}`,
     );
-    const result = await loadSource(
-      await downloaded.arrayBuffer(),
-      "safe.pdf",
-      renderer,
+    const result = await inAct(async () =>
+      loadSource(await downloaded.arrayBuffer(), "safe.pdf", renderer),
     );
-    const savedPages = await sourcePages(result);
+    const savedPages = await inAct(async () => sourcePages(result));
     assert.equal(
       savedPages.length,
       6,
       document.querySelector(".toast")?.textContent,
     );
-    assert.equal(await extractText(savedPages), "");
+    assert.equal(await inAct(async () => extractText(savedPages)), "");
     await result.document.destroy();
     await click("슬라이드 재생");
     assert.ok(document.querySelector(".presentation-mode"));
@@ -975,14 +978,12 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     await click("저장");
     for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
       await settle();
-    const written = await loadSource(
-      await downloaded.arrayBuffer(),
-      "written.pdf",
-      renderer,
+    const written = await inAct(async () =>
+      loadSource(await downloaded.arrayBuffer(), "written.pdf", renderer),
     );
-    const writtenPages = await sourcePages(written);
-    const writtenCanvas = await renderPage(writtenPages[0], 1, () =>
-      createCanvas(1, 1),
+    const writtenPages = await inAct(async () => sourcePages(written));
+    const writtenCanvas = await inAct(async () =>
+      renderPage(writtenPages[0], 1, () => createCanvas(1, 1)),
     );
     const penPixel = writtenCanvas
       .getContext("2d")
@@ -1243,6 +1244,21 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       document.querySelector(".pinned-capture"),
       "capture remains pinned across pages",
     );
+    const originalCanvasBeforeBlank = document.querySelector(
+      ".document-stage .page-canvas > canvas",
+    );
+    const transientBusyKinds = [];
+    const busyObserver = new window.MutationObserver(() => {
+      const indicator = document.querySelector(".busy-indicator");
+      if (indicator)
+        transientBusyKinds.push(indicator.classList.contains("inline-busy"));
+    });
+    busyObserver.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["class"],
+    });
     const pageBeforeBlank =
       document.querySelector(".slide-page-number").textContent;
     await click("빈 페이지 추가");
@@ -1271,6 +1287,96 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       );
     }
 
+    const leftInkCanvas = document.querySelector(
+      '[aria-label="왼쪽 참고 페이지"] .annotation-canvas',
+    );
+    const rightInkCanvas = document.querySelector(
+      '[aria-label="오른쪽 연습 페이지"] .annotation-canvas',
+    );
+    assert.equal(
+      document.querySelector(
+        '[aria-label="왼쪽 참고 페이지"] .page-canvas > canvas',
+      ),
+      originalCanvasBeforeBlank,
+      "original canvas stays mounted when a blank page is added",
+    );
+    async function drawInPane(canvas, y, id) {
+      const bounds = canvas.getBoundingClientRect();
+      await act(async () => {
+        for (const [type, x] of [
+          ["pointerdown", 0.2],
+          ["pointermove", 0.65],
+          ["pointerup", 0.65],
+        ]) {
+          const event = new window.MouseEvent(type, {
+            bubbles: true,
+            clientX: bounds.left + x * bounds.width,
+            clientY: bounds.top + y * bounds.height,
+            button: 0,
+          });
+          Object.defineProperty(event, "pointerId", { value: id });
+          canvas.dispatchEvent(event);
+        }
+      });
+      await settle();
+    }
+    await click("펜");
+    await click("파란색 색상");
+    const emptyRight = rightInkCanvas.toDataURL();
+    const pageNumberBeforeInk =
+      document.querySelector(".slide-page-number").textContent;
+    await drawInPane(leftInkCanvas, 0.7, 31);
+    const leftWithInk = leftInkCanvas.toDataURL();
+    const bluePixel = leftInkCanvas
+      .getContext("2d")
+      .getImageData(
+        Math.round(leftInkCanvas.width * 0.4),
+        Math.round(leftInkCanvas.height * 0.7),
+        1,
+        1,
+      ).data;
+    assert.ok(
+      bluePixel[2] > bluePixel[0] + 40,
+      "pen writes on the reference page",
+    );
+    assert.equal(
+      rightInkCanvas.toDataURL(),
+      emptyRight,
+      "left pen does not write on the blank page",
+    );
+    assert.equal(
+      document.querySelector(".slide-page-number").textContent,
+      pageNumberBeforeInk,
+      "editing left page keeps the two-page spread open",
+    );
+    await click("형광펜");
+    await drawInPane(rightInkCanvas, 0.8, 32);
+    assert.equal(
+      leftInkCanvas.toDataURL(),
+      leftWithInk,
+      "right highlighter does not change the reference page",
+    );
+    assert.notEqual(rightInkCanvas.toDataURL(), emptyRight);
+    await click("취소");
+    assert.equal(
+      rightInkCanvas.toDataURL(),
+      emptyRight,
+      "undo targets the last edit on the correct page",
+    );
+    assert.equal(leftInkCanvas.toDataURL(), leftWithInk);
+    await click("다시");
+    assert.notEqual(rightInkCanvas.toDataURL(), emptyRight);
+    await click("형광펜");
+    await drawInPane(leftInkCanvas, 0.85, 33);
+    const highlightedLeft = leftInkCanvas.toDataURL();
+    await click("펜");
+    await click("초록색 색상");
+    await drawInPane(rightInkCanvas, 0.6, 34);
+    assert.equal(
+      leftInkCanvas.toDataURL(),
+      highlightedLeft,
+      "both pen and highlighter work independently on either pane",
+    );
     await click("이동");
     const spreadStage = document.querySelector(".document-stage");
     spreadStage.scrollTop = 160;
@@ -1328,6 +1434,18 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       2,
       "reference page supports capture without leaving two-page view",
     );
+    busyObserver.disconnect();
+    assert.ok(
+      transientBusyKinds.every(Boolean),
+      "capture and blank-page creation use compact progress rather than a full-screen backdrop",
+    );
+    assert.equal(
+      document.querySelector(
+        '[aria-label="왼쪽 참고 페이지"] .page-canvas > canvas',
+      ),
+      originalCanvasBeforeBlank,
+      "capture keeps the page bitmap mounted",
+    );
     await click("종료");
     await click("취소");
     assert.ok(document.querySelector(".presentation-mode"));
@@ -1352,6 +1470,23 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     await click("빈 페이지 추가");
     for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
       await settle();
+    await click("펜");
+    await click("파란색 색상");
+    await drawInPane(
+      document.querySelector(
+        '[aria-label="왼쪽 참고 페이지"] .annotation-canvas',
+      ),
+      0.7,
+      35,
+    );
+    await click("붉은색 색상");
+    await drawInPane(
+      document.querySelector(
+        '[aria-label="오른쪽 연습 페이지"] .annotation-canvas',
+      ),
+      0.7,
+      36,
+    );
     await click("종료");
     const createDownloadUrl = URL.createObjectURL;
     URL.createObjectURL = () => {
@@ -1373,16 +1508,39 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
       await settle();
     assert.equal(document.querySelector(".presentation-mode"), null);
-    const practice = await loadSource(
-      await downloaded.arrayBuffer(),
-      "practice.pdf",
-      renderer,
+    const practice = await inAct(async () =>
+      loadSource(await downloaded.arrayBuffer(), "practice.pdf", renderer),
     );
-    const practicePages = await sourcePages(practice);
+    const practicePages = await inAct(async () => sourcePages(practice));
     assert.equal(practicePages.length, baselineThumbnails + 1);
     assert.equal(
       document.querySelectorAll(".thumbnail").length,
       baselineThumbnails + 1,
+    );
+    const savedLeft = await inAct(async () =>
+      renderPage(practicePages[0], 1, () => createCanvas(1, 1)),
+    );
+    const savedRight = await inAct(async () =>
+      renderPage(practicePages[1], 1, () => createCanvas(1, 1)),
+    );
+    const sampleInk = (canvas) =>
+      canvas
+        .getContext("2d")
+        .getImageData(
+          Math.round(canvas.width * 0.4),
+          Math.round(canvas.height * 0.7),
+          1,
+          1,
+        ).data;
+    const savedBlue = sampleInk(savedLeft),
+      savedRed = sampleInk(savedRight);
+    assert.ok(
+      savedBlue[2] > savedBlue[0] + 40,
+      "reference-page writing survives PDF export",
+    );
+    assert.ok(
+      savedRed[0] > savedRed[2] + 40,
+      "blank-page writing survives PDF export",
     );
     await practice.document.destroy();
     await click("새 작업");

@@ -153,6 +153,9 @@ export default function App({ pdfjs, createOcrWorker }) {
   const [shapeMenu, setShapeMenu] = useState(false);
   const [zoomVisible, setZoomVisible] = useState(false);
   const [selectedShapeId, setSelectedShapeId] = useState(null);
+  const [editingPageId, setEditingPageId] = useState(null);
+  const [busyInline, setBusyInline] = useState(false);
+  useEffect(() => setEditingPageId(activeId), [activeId]);
   const colorMemory = useRef({
     pen: "#087f5b",
     highlight: "#ffe600",
@@ -218,6 +221,7 @@ export default function App({ pdfjs, createOcrWorker }) {
     pages.findIndex((p) => p.id === activeId),
   );
   const page = pages[activeIndex];
+  const editingPage = pages.find((p) => p.id === editingPageId) || page;
   const notify = useCallback(
     (message, error = false) => setToast({ message, error, id: Date.now() }),
     [],
@@ -254,8 +258,12 @@ export default function App({ pdfjs, createOcrWorker }) {
     setDirty(true);
     setHistoryVersion((v) => v + 1);
   }, []);
-  const updateAnnotations = (annotations) =>
-    commit(pages.map((p) => (p.id === page.id ? { ...p, annotations } : p)));
+  const updateAnnotations = (annotations, pageId = page.id) =>
+    commit(
+      pagesRef.current.map((p) =>
+        p.id === pageId ? { ...p, annotations } : p,
+      ),
+    );
   const undo = useCallback(() => {
     if (!past.current.length || operation.current) return;
     future.current.push(pagesRef.current);
@@ -599,6 +607,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   const addBlankPage = async () => {
     if (operation.current || !page) return;
     operation.current = true;
+    setBusyInline(true);
     setBusy("빈 연습 페이지를 추가하는 중…");
     try {
       const size = rotatedSize(page);
@@ -625,11 +634,13 @@ export default function App({ pdfjs, createOcrWorker }) {
     } finally {
       operation.current = false;
       setBusy("");
+      setBusyInline(false);
     }
   };
   const finishCapture = async (current) => {
     if (current.rect.width < 0.003 || current.rect.height < 0.003) return;
     operation.current = true;
+    setBusyInline(true);
     setBusy("선택한 영역을 캡처하는 중…");
     try {
       const image = await captureRegion(current.page, current.rect);
@@ -649,6 +660,7 @@ export default function App({ pdfjs, createOcrWorker }) {
     } finally {
       operation.current = false;
       setBusy("");
+      setBusyInline(false);
     }
   };
   useEffect(() => {
@@ -726,13 +738,13 @@ export default function App({ pdfjs, createOcrWorker }) {
     pointer.current = null;
     stage.current?.scrollTo({ top: 0, left: 0 });
   };
-  const point = (e) => {
+  const point = (e, reference = pointer.current?.reference || page) => {
     const rect =
       pointer.current?.resizeBounds || e.currentTarget.getBoundingClientRect();
     return toBasePoint(
       Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
       Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
-      page.rotation,
+      reference.rotation,
     );
   };
   const beginCapture = (e, reference) => {
@@ -765,7 +777,7 @@ export default function App({ pdfjs, createOcrWorker }) {
       top: stage.current.scrollTop,
     };
   };
-  const beginShapeResize = (e, corner, annotation, box) => {
+  const beginShapeResize = (e, corner, annotation, box, reference = page) => {
     if (operation.current || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -774,19 +786,20 @@ export default function App({ pdfjs, createOcrWorker }) {
       .closest(".page-canvas")
       .querySelector(".annotation-canvas");
     pointer.current = {
+      reference,
       moveAnnotation: annotation,
       resizeCorner: corner,
       box,
       resizeBounds: canvas.getBoundingClientRect(),
     };
   };
-  const pointerDown = (e) => {
-    if (operation.current || !page || e.button !== 0 || tool === "laser")
+  const pointerDown = (e, reference = page) => {
+    if (operation.current || !reference || e.button !== 0 || tool === "laser")
       return;
     if (
       tool === "redact" &&
       regionSession &&
-      !regionSession.ids.includes(page.id)
+      !regionSession.ids.includes(reference.id)
     ) {
       notify(
         "영역 작업에 포함된 페이지를 선택하거나 가리기 설정을 다시 열어 주세요.",
@@ -796,10 +809,11 @@ export default function App({ pdfjs, createOcrWorker }) {
     }
     e.currentTarget.setPointerCapture(e.pointerId);
     if (tool === "capture") {
-      beginCapture(e, page);
+      beginCapture(e, reference);
       return;
     }
-    const p = point(e);
+    setEditingPageId(reference.id);
+    const p = point(e, reference);
     if (tool === "move") {
       beginPan(e);
       return;
@@ -807,42 +821,48 @@ export default function App({ pdfjs, createOcrWorker }) {
     if (tool === "signature" && signature) {
       const width = Math.min(0.3, 1 - p.x);
       const height = Math.min(
-        (width * page.width) / page.height / signature.aspect,
+        (width * reference.width) / reference.height / signature.aspect,
         1 - p.y,
       );
       if (width > 0.01 && height > 0.01)
-        updateAnnotations([
-          ...page.annotations,
-          {
-            id: uid(),
-            type: "signature",
-            ...p,
-            width,
-            height,
-            dataUrl: signature.dataUrl,
-          },
-        ]);
+        updateAnnotations(
+          [
+            ...reference.annotations,
+            {
+              id: uid(),
+              type: "signature",
+              ...p,
+              width,
+              height,
+              dataUrl: signature.dataUrl,
+            },
+          ],
+          reference.id,
+        );
       setTool("move");
       notify("서명을 추가했습니다.");
       return;
     }
     if (tool === "text") {
       setTextValue("");
-      setModal({ type: "text", anchor: p, pageId: page.id });
+      setModal({ type: "text", anchor: p, pageId: reference.id });
       return;
     }
-    const hit = [...page.annotations]
+    const hit = [...reference.annotations]
       .reverse()
-      .find((a) => annotationHit(a, p, page));
+      .find((a) => annotationHit(a, p, reference));
     if (tool === "erase") {
       if (hit)
-        updateAnnotations(page.annotations.filter((a) => a.id !== hit.id));
+        updateAnnotations(
+          reference.annotations.filter((a) => a.id !== hit.id),
+          reference.id,
+        );
       return;
     }
     if (tool === "select") {
       setSelectedShapeId(hit?.type === "shape" ? hit.id : null);
       if (hit) {
-        pointer.current = { moveAnnotation: hit, origin: p };
+        pointer.current = { moveAnnotation: hit, origin: p, reference };
         setDraft(hit);
       } else
         notify(
@@ -862,9 +882,9 @@ export default function App({ pdfjs, createOcrWorker }) {
     pointer.current = {
       annotation,
       origin: p,
-      reference: page,
+      reference,
       targetIds: new Set(
-        regionSession?.mode === "repeat" ? regionSession.ids : [page.id],
+        regionSession?.mode === "repeat" ? regionSession.ids : [reference.id],
       ),
     };
     setDraft(annotation);
@@ -928,7 +948,7 @@ export default function App({ pdfjs, createOcrWorker }) {
           current.moveAnnotation.points,
           before,
           after,
-          page.rotation,
+          current.reference.rotation,
         ),
       };
       setDraft(current.updated);
@@ -973,7 +993,7 @@ export default function App({ pdfjs, createOcrWorker }) {
               a.shapeKind,
               current.origin,
               p,
-              page.width / page.height,
+              current.reference.width / current.reference.height,
             ),
           }
         : a.type === "redact"
@@ -1000,9 +1020,12 @@ export default function App({ pdfjs, createOcrWorker }) {
     if (current.moveAnnotation) {
       if (current.updated)
         updateAnnotations(
-          page.annotations.map((a) =>
-            a.id === current.updated.id ? current.updated : a,
-          ),
+          pagesRef.current
+            .find((p) => p.id === current.reference.id)
+            .annotations.map((a) =>
+              a.id === current.updated.id ? current.updated : a,
+            ),
+          current.reference.id,
         );
       return;
     }
@@ -1015,7 +1038,8 @@ export default function App({ pdfjs, createOcrWorker }) {
           (p) =>
             Math.hypot(
               p.x - a.points[0].x,
-              ((p.y - a.points[0].y) * page.height) / page.width,
+              ((p.y - a.points[0].y) * current.reference.height) /
+                current.reference.width,
             ) > 0.005,
         ))
     )
@@ -1034,7 +1058,15 @@ export default function App({ pdfjs, createOcrWorker }) {
           ? `${current.targetIds.size}페이지의 같은 위치를 흰색으로 가렸습니다.`
           : "이 페이지의 지정 영역을 흰색으로 가렸습니다.",
       );
-    } else updateAnnotations([...page.annotations, a]);
+    } else
+      updateAnnotations(
+        [
+          ...pagesRef.current.find((p) => p.id === current.reference.id)
+            .annotations,
+          a,
+        ],
+        current.reference.id,
+      );
   };
   useEffect(() => {
     const key = (e) => {
@@ -1122,13 +1154,16 @@ export default function App({ pdfjs, createOcrWorker }) {
   const displayWidth = practiceReference
     ? practiceWidth(page)
     : (fitWidth * zoom) / 100;
-  const displayedPage =
-    page && draft && pointer.current?.moveAnnotation
-      ? {
-          ...page,
-          annotations: page.annotations.filter((a) => a.id !== draft.id),
-        }
-      : page;
+  const displayedFor = (p) =>
+    p && draft && pointer.current?.moveAnnotation && editingPageId === p.id
+      ? { ...p, annotations: p.annotations.filter((a) => a.id !== draft.id) }
+      : p;
+  const shapeFor = (p) =>
+    tool === "select" && editingPageId === p.id
+      ? draft?.id === selectedShapeId
+        ? draft
+        : p.annotations.find((a) => a.id === selectedShapeId)
+      : null;
   const ocrPreviewPage = pages.find((p) => p.id === ocrPreviewId);
   const ocrPreview =
     ocrPreviewPage && ocrReview
@@ -1625,109 +1660,71 @@ export default function App({ pdfjs, createOcrWorker }) {
                     onPointerCancel={clearLaser}
                   >
                     {page ? (
-                      practiceReference ? (
-                        <div className="two-page-spread">
+                      <div
+                        className={`page-spread ${practiceReference ? "two-page-spread" : ""}`}
+                      >
+                        {(practiceReference
+                          ? [practiceReference, page]
+                          : [page]
+                        ).map((target, index) => (
                           <section
-                            className="practice-pane"
-                            aria-label="왼쪽 참고 페이지"
-                            style={{ width: practiceWidth(practiceReference) }}
+                            key={target.id}
+                            className={`practice-pane ${editingPageId === target.id ? "editing-pane" : ""}`}
+                            aria-label={
+                              practiceReference
+                                ? index === 0
+                                  ? "왼쪽 참고 페이지"
+                                  : "오른쪽 연습 페이지"
+                                : "문서 페이지"
+                            }
+                            style={{
+                              width: practiceReference
+                                ? practiceWidth(target)
+                                : displayWidth,
+                            }}
                           >
-                            <div className="practice-pane-label">
-                              참고 페이지 ·{" "}
-                              {pages.indexOf(practiceReference) + 1}쪽
-                            </div>
+                            {practiceReference && (
+                              <div className="practice-pane-label">
+                                {index === 0 ? "원본 페이지" : "연습 페이지"} ·{" "}
+                                {pages.indexOf(target) + 1}쪽
+                              </div>
+                            )}
                             <PageCanvas
-                              page={practiceReference}
-                              width={practiceWidth(practiceReference)}
-                              tool={tool === "capture" ? "capture" : "move"}
+                              page={displayedFor(target)}
+                              width={
+                                practiceReference
+                                  ? practiceWidth(target)
+                                  : displayWidth
+                              }
+                              tool={tool}
+                              draft={editingPageId === target.id ? draft : null}
+                              selectedShape={shapeFor(target)}
+                              onShapeResize={(e, corner, annotation, box) =>
+                                beginShapeResize(
+                                  e,
+                                  corner,
+                                  annotation,
+                                  box,
+                                  target,
+                                )
+                              }
                               captureRect={
-                                captureRect?.pageId === practiceReference.id
+                                captureRect?.pageId === target.id
                                   ? captureRect
                                   : null
                               }
-                              onPointerDown={
-                                tool === "capture"
-                                  ? (e) => beginCapture(e, practiceReference)
-                                  : tool === "move"
-                                    ? beginPan
-                                    : undefined
-                              }
+                              onPointerDown={(e) => pointerDown(e, target)}
                               onPointerMove={pointerMove}
                               onPointerUp={pointerUp}
-                              onPointerCancel={() => {
-                                pointer.current = null;
-                                setCaptureRect(null);
-                              }}
-                            />
-                          </section>
-                          <section
-                            className="practice-pane"
-                            aria-label="오른쪽 연습 페이지"
-                            style={{ width: practiceWidth(page) }}
-                          >
-                            <div className="practice-pane-label">
-                              연습 페이지 · {activeIndex + 1}쪽
-                            </div>
-                            <PageCanvas
-                              page={displayedPage}
-                              width={displayWidth}
-                              tool={tool}
-                              draft={draft}
-                              selectedShape={
-                                tool === "select"
-                                  ? draft?.id === selectedShapeId
-                                    ? draft
-                                    : page.annotations.find(
-                                        (a) => a.id === selectedShapeId,
-                                      )
-                                  : null
-                              }
-                              onShapeResize={beginShapeResize}
-                              captureRect={
-                                captureRect?.pageId === page.id
-                                  ? captureRect
-                                  : null
-                              }
                               onPointerCancel={() => {
                                 pointer.current = null;
                                 setCaptureRect(null);
                                 setDraft(null);
                               }}
-                              onPointerDown={pointerDown}
-                              onPointerMove={pointerMove}
-                              onPointerUp={pointerUp}
                             />
                           </section>
-                        </div>
-                      ) : (
-                        <PageCanvas
-                          page={displayedPage}
-                          width={displayWidth}
-                          tool={tool}
-                          draft={draft}
-                          selectedShape={
-                            tool === "select"
-                              ? draft?.id === selectedShapeId
-                                ? draft
-                                : page.annotations.find(
-                                    (a) => a.id === selectedShapeId,
-                                  )
-                              : null
-                          }
-                          onShapeResize={beginShapeResize}
-                          captureRect={
-                            captureRect?.pageId === page.id ? captureRect : null
-                          }
-                          onPointerCancel={() => {
-                            pointer.current = null;
-                            setCaptureRect(null);
-                            setDraft(null);
-                          }}
-                          onPointerDown={pointerDown}
-                          onPointerMove={pointerMove}
-                          onPointerUp={pointerUp}
-                        />
-                      )
+                        ))}
+                      </div>
                     ) : (
                       <div className="empty-state">
                         <h1>
@@ -1985,7 +1982,7 @@ export default function App({ pdfjs, createOcrWorker }) {
                 </ToolButton>
                 <ToolButton
                   icon={Trash}
-                  disabled={!page?.annotations.length}
+                  disabled={!editingPage?.annotations.length}
                   onClick={() => setModal({ type: "clear" })}
                 >
                   쪽 지우기
@@ -2170,7 +2167,11 @@ export default function App({ pdfjs, createOcrWorker }) {
         </div>
       )}
       {busy && (
-        <div className="busy-indicator" role="status" aria-live="polite">
+        <div
+          className={`busy-indicator ${busyInline ? "inline-busy" : ""}`}
+          role="status"
+          aria-live="polite"
+        >
           <span className="spinner" />
           <span>{busy}</span>
           <small>큰 문서는 시간이 조금 걸릴 수 있어요.</small>
@@ -2795,7 +2796,7 @@ export default function App({ pdfjs, createOcrWorker }) {
                   icon={Trash}
                   className="primary"
                   onClick={() => {
-                    updateAnnotations([]);
+                    updateAnnotations([], editingPage.id);
                     setModal(null);
                   }}
                 >
