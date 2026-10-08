@@ -37,7 +37,12 @@ export function Modal({
   const ref = useRef(null);
   useEffect(() => {
     const previous = document.activeElement;
-    ref.current?.querySelector("button, input, textarea")?.focus();
+    const defaultControl = ref.current?.querySelector(
+      "[data-default-focus]:not(:disabled)",
+    );
+    (
+      defaultControl || ref.current?.querySelector("button, input, textarea")
+    )?.focus();
     const key = (event) => {
       if (event.key === "Escape" && !busy) onClose();
       if (event.key === "Tab") {

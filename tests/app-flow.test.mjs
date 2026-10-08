@@ -815,6 +815,24 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       document.querySelector("[role=dialog] h2").textContent,
       /저장할까요/,
     );
+    const exitDialog = document.querySelector('[role="dialog"]');
+    const exitButtons = [
+      ...exitDialog.querySelectorAll(".slide-exit-actions button"),
+    ];
+    const defaultExit = exitButtons.find(
+      (button) => button.textContent.trim() === "저장하지 않고 종료",
+    );
+    assert.equal(
+      document.activeElement,
+      defaultExit,
+      "discard is the default focused action",
+    );
+    assert.ok(defaultExit.classList.contains("primary"));
+    assert.ok(
+      !exitButtons
+        .find((button) => button.textContent.trim() === "저장하고 종료")
+        .classList.contains("primary"),
+    );
     await click("저장하고 종료");
     for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
       await settle();

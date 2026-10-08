@@ -2423,3 +2423,14 @@ input[type="radio"] {
   background: white;
   color: #315c43;
 }
+
+.modal-footer.slide-exit-actions > .tool-button:not(.primary) {
+  border-color: var(--line);
+  background: #f8faf7;
+  color: #315e48;
+}
+.modal-footer.slide-exit-actions
+  > .tool-button:not(.primary):not(:disabled):hover {
+  border-color: #8eb9a1;
+  background: #eaf3eb;
+}

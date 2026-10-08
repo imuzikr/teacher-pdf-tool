@@ -2028,15 +2028,19 @@ export default function App({ pdfjs, createOcrWorker }) {
                 저장하지 않으면 슬라이드 시작 전 상태로 돌아갑니다. 원본 파일과
                 시작 전에 편집한 내용은 유지됩니다.
               </p>
-              <div className="modal-footer">
+              <div className="modal-footer slide-exit-actions">
                 <ToolButton disabled={!!busy} onClick={closeModal}>
                   취소
                 </ToolButton>
-                <ToolButton disabled={!!busy} onClick={discardSlide}>
+                <ToolButton
+                  className="primary"
+                  data-default-focus
+                  disabled={!!busy}
+                  onClick={discardSlide}
+                >
                   저장하지 않고 종료
                 </ToolButton>
                 <ToolButton
-                  className="primary"
                   icon={FloppyDisk}
                   disabled={!!busy}
                   onClick={async () => {
