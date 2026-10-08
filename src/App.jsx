@@ -1109,27 +1109,66 @@ export default function App({ pdfjs, createOcrWorker }) {
                         />
                       )}
                     </div>
-                    <div className="page-navigation">
-                      <button
-                        className="icon-button"
-                        aria-label="이전 페이지"
-                        disabled={activeIndex === 0 || !!busy}
-                        onClick={() => navigate(-1)}
-                      >
-                        <ArrowLeft size={16} />
-                      </button>
-                      <span>
-                        {activeIndex + 1}
-                        <i>/ {pages.length}</i>
-                      </span>
-                      <button
-                        className="icon-button"
-                        aria-label="다음 페이지"
-                        disabled={activeIndex === pages.length - 1 || !!busy}
-                        onClick={() => navigate(1)}
-                      >
-                        <ArrowRight size={16} />
-                      </button>
+                    <div className="document-controls">
+                      {!slide && (
+                        <div
+                          className="document-zoom"
+                          role="group"
+                          aria-label="문서 확대 및 축소"
+                        >
+                          <button
+                            className="icon-button"
+                            aria-label="문서 축소"
+                            title="축소"
+                            disabled={zoom <= 30 || !!busy}
+                            onClick={() => setZoom((z) => Math.max(30, z - 10))}
+                          >
+                            <Minus size={16} />
+                          </button>
+                          <span className="zoom-value">{zoom}%</span>
+                          <button
+                            className="icon-button"
+                            aria-label="문서 확대"
+                            title="확대"
+                            disabled={zoom >= 250 || !!busy}
+                            onClick={() =>
+                              setZoom((z) => Math.min(250, z + 10))
+                            }
+                          >
+                            <Plus size={16} />
+                          </button>
+                          <button
+                            className="text-button"
+                            aria-label="문서 화면에 맞춤"
+                            disabled={!!busy}
+                            onClick={() => setZoom(100)}
+                          >
+                            <CornersOut size={16} /> 화면에 맞춤
+                          </button>
+                        </div>
+                      )}
+                      <div className="page-navigation">
+                        <button
+                          className="icon-button"
+                          aria-label="이전 페이지"
+                          disabled={activeIndex === 0 || !!busy}
+                          onClick={() => navigate(-1)}
+                        >
+                          <ArrowLeft size={16} />
+                        </button>
+                        <span>
+                          {activeIndex + 1}
+                          <i>/ {pages.length}</i>
+                        </span>
+                        <button
+                          className="icon-button"
+                          aria-label="다음 페이지"
+                          disabled={activeIndex === pages.length - 1 || !!busy}
+                          onClick={() => navigate(1)}
+                        >
+                          <ArrowRight size={16} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}

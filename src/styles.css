@@ -2186,3 +2186,33 @@ input[type="radio"] {
   background: #e8f1e8;
   border-radius: 6px;
 }
+
+.document-controls,
+.document-zoom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.document-controls {
+  flex-shrink: 0;
+  gap: 16px;
+}
+.document-zoom .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.document-zoom .zoom-value {
+  min-width: 38px;
+  text-align: center;
+}
+@media (max-width: 1000px) {
+  .editor-workspace .document-heading {
+    flex-wrap: wrap;
+    padding-bottom: 8px;
+  }
+  .document-controls {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}

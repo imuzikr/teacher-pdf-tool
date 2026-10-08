@@ -242,6 +242,31 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       null,
       "imported PDF renders successfully",
     );
+    const zoomControls = document.querySelector(".document-zoom");
+    const documentCanvas = document.querySelector(
+      ".document-stage .page-canvas",
+    );
+    const initialWidth = parseFloat(documentCanvas.style.width);
+    await act(async () =>
+      zoomControls.querySelector('[aria-label="문서 확대"]').click(),
+    );
+    assert.ok(parseFloat(documentCanvas.style.width) > initialWidth);
+    assert.equal(zoomControls.querySelector(".zoom-value").textContent, "110%");
+    assert.equal(
+      document.querySelector(".statusbar .zoom-value").textContent,
+      "110%",
+    );
+    await act(async () =>
+      zoomControls.querySelector('[aria-label="문서 축소"]').click(),
+    );
+    assert.equal(parseFloat(documentCanvas.style.width), initialWidth);
+    await act(async () =>
+      zoomControls.querySelector('[aria-label="문서 확대"]').click(),
+    );
+    await act(async () =>
+      zoomControls.querySelector('[aria-label="문서 화면에 맞춤"]').click(),
+    );
+    assert.equal(parseFloat(documentCanvas.style.width), initialWidth);
     const fileInput = document.querySelector("input[type=file]");
     const bytes = await createTestPdf();
     Object.defineProperty(fileInput, "files", {
