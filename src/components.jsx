@@ -189,7 +189,10 @@ export function PageCanvas({
       page,
       dimensions.width,
       dimensions.height,
-      [...page.annotations, ...(draft ? [draft] : [])],
+      [
+        ...page.annotations,
+        ...(Array.isArray(draft) ? draft : draft ? [draft] : []),
+      ],
       !thumbnail && tool === "redact",
     )
       .then(() => {
@@ -214,6 +217,7 @@ export function PageCanvas({
   return (
     <div
       ref={holder}
+      data-page-id={page.id}
       className={`page-canvas ${thumbnail ? "thumbnail-canvas" : ""} tool-${tool || "move"}`}
       style={{ width, height, aspectRatio: `${width} / ${height}` }}
     >

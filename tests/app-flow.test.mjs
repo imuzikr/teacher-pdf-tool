@@ -97,14 +97,20 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     const target = this.tagName === "CANVAS" ? this.parentElement : this;
     const width = parseFloat(target.style.width) || 1100;
     const height = parseFloat(target.style.height) || 800;
+    const pane = target.closest(".two-page-spread .practice-pane");
+    const left = pane
+      ? [...pane.parentElement.children]
+          .slice(0, [...pane.parentElement.children].indexOf(pane))
+          .reduce((sum, sibling) => sum + parseFloat(sibling.style.width), 0)
+      : 0;
     return {
-      left: 0,
+      left,
       top: 0,
-      x: 0,
+      x: left,
       y: 0,
       width,
       height,
-      right: width,
+      right: left + width,
       bottom: height,
     };
   };
@@ -1377,6 +1383,51 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       highlightedLeft,
       "both pen and highlighter work independently on either pane",
     );
+    const leftBeforeCrossing = leftInkCanvas.toDataURL();
+    const rightBeforeCrossing = rightInkCanvas.toDataURL();
+    const leftBoundsForInk = leftInkCanvas.getBoundingClientRect(),
+      rightBoundsForInk = rightInkCanvas.getBoundingClientRect();
+    await click("펜");
+    await click("붉은색 색상");
+    await act(async () => {
+      for (const [type, x] of [
+        ["pointerdown", leftBoundsForInk.left + leftBoundsForInk.width * 0.6],
+        ["pointermove", rightBoundsForInk.left + rightBoundsForInk.width * 0.4],
+        ["pointerup", rightBoundsForInk.left + rightBoundsForInk.width * 0.4],
+      ]) {
+        const event = new window.MouseEvent(type, {
+          bubbles: true,
+          clientX: x,
+          clientY: leftBoundsForInk.height * 0.4,
+          button: 0,
+        });
+        Object.defineProperty(event, "pointerId", { value: 40 });
+        leftInkCanvas.dispatchEvent(event);
+      }
+    });
+    await settle();
+    const edgeRed = (canvas, x) =>
+      canvas
+        .getContext("2d")
+        .getImageData(
+          Math.round(canvas.width * x),
+          Math.round(canvas.height * 0.4),
+          1,
+          1,
+        ).data;
+    const leftRed = edgeRed(leftInkCanvas, 0.9),
+      rightRed = edgeRed(rightInkCanvas, 0.1);
+    assert.ok(
+      leftRed[0] > leftRed[2] + 40 && rightRed[0] > rightRed[2] + 40,
+      "one pen gesture continues across both pages",
+    );
+    await click("취소");
+    assert.equal(
+      leftInkCanvas.toDataURL(),
+      leftBeforeCrossing,
+      "one undo restores both pages after a crossing stroke",
+    );
+    assert.equal(rightInkCanvas.toDataURL(), rightBeforeCrossing);
     await click("이동");
     const spreadStage = document.querySelector(".document-stage");
     spreadStage.scrollTop = 160;

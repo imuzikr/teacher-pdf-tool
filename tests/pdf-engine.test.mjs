@@ -1,4 +1,9 @@
 import {
+  beginInkGesture,
+  advanceInkGesture,
+  inkDrafts,
+} from "../src/ink-gesture.js";
+import {
   shapeOptions,
   shapePoints,
   hitShape,
@@ -526,5 +531,88 @@ test("shape resizing uses visible corners on every page rotation and survives sa
     );
     await out.document.destroy();
   }
+  await source.document.destroy();
+});
+
+test("cross-page pen and highlighter gestures save continuously without edge streaks or outside joins", async () => {
+  const source = await loadSource(
+    await createBlankPdf(400, 400),
+    "ink.pdf",
+    renderer,
+  );
+  for (const type of ["pen", "highlight"])
+    for (const rotation of [0, 90]) {
+      const [left] = await sourcePages(source),
+        [right] = await sourcePages(source);
+      right.rotation = rotation;
+      const gesture = beginInkGesture(
+        [
+          { page: left, bounds: { left: 0, top: 0, width: 200, height: 200 } },
+          {
+            page: right,
+            bounds: { left: 200, top: 0, width: 200, height: 200 },
+          },
+        ],
+        { type, color: "#087f5b", size: 0.01 },
+        { x: 50, y: 100 },
+      );
+      advanceInkGesture(gesture, { x: 350, y: 100 });
+      advanceInkGesture(gesture, { x: 450, y: 150 });
+      const beforeOutside = JSON.stringify(inkDrafts(gesture));
+      advanceInkGesture(gesture, { x: 450, y: 250 });
+      assert.equal(
+        JSON.stringify(inkDrafts(gesture)),
+        beforeOutside,
+        "moving outside the page does not draw a vertical edge streak",
+      );
+      advanceInkGesture(gesture, { x: 350, y: 150 });
+      const drafts = inkDrafts(gesture);
+      assert.equal(
+        drafts[right.id].length,
+        2,
+        "re-entry starts a separate segment without connecting through empty space",
+      );
+      left.annotations = drafts[left.id];
+      right.annotations = drafts[right.id];
+      const out = await loadSource(
+        await exportPdf([left, right], {
+          canvasFactory: () => createCanvas(1, 1),
+        }),
+        "crossing.pdf",
+        renderer,
+      );
+      const pages = await sourcePages(out);
+      for (const [index, page] of pages.entries()) {
+        const canvas = await renderPage(page, 1, () => createCanvas(1, 1));
+        const x = index === 0 ? 0.75 : 0.25;
+        const ink = canvas
+          .getContext("2d")
+          .getImageData(
+            Math.round(canvas.width * x),
+            Math.round(canvas.height * 0.5),
+            1,
+            1,
+          ).data;
+        assert.ok(
+          ink[1] > ink[0] + 20,
+          `${type} continues in the saved PDF (${rotation})`,
+        );
+        if (index === 1) {
+          const edge = canvas
+            .getContext("2d")
+            .getImageData(
+              canvas.width - 1,
+              Math.round(canvas.height * 0.8),
+              1,
+              1,
+            ).data;
+          assert.ok(
+            edge[0] > 240 && edge[1] > 240 && edge[2] > 240,
+            "no fabricated stroke connects the entry/exit along the page edge",
+          );
+        }
+      }
+      await out.document.destroy();
+    }
   await source.document.destroy();
 });

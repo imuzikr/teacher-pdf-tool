@@ -39,6 +39,11 @@ import { ToolButton, Modal, PageCanvas, SignaturePad } from "./components.jsx";
 import PdfAssembler from "./PdfAssembler.jsx";
 import { shapeOptions, shapePoints, hitShape, resizeShape } from "./shapes.js";
 import PinnedCapture from "./PinnedCapture.jsx";
+import {
+  beginInkGesture,
+  advanceInkGesture,
+  inkDrafts,
+} from "./ink-gesture.js";
 import { createBlankPdf, captureRegion } from "./slide-tools.js";
 import {
   parseTerms,
@@ -154,6 +159,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   const [zoomVisible, setZoomVisible] = useState(false);
   const [selectedShapeId, setSelectedShapeId] = useState(null);
   const [editingPageId, setEditingPageId] = useState(null);
+  const [inkPreview, setInkPreview] = useState({});
   const [busyInline, setBusyInline] = useState(false);
   useEffect(() => setEditingPageId(activeId), [activeId]);
   const colorMemory = useRef({
@@ -169,6 +175,8 @@ export default function App({ pdfjs, createOcrWorker }) {
   };
   useEffect(() => {
     setSelectedShapeId(null);
+    setInkPreview({});
+    pointer.current = null;
     if (tool !== "shape") setShapeMenu(false);
   }, [activeId, tool]);
   useEffect(() => {
@@ -272,6 +280,7 @@ export default function App({ pdfjs, createOcrWorker }) {
     setDirty(true);
     setHistoryVersion((v) => v + 1);
     setDraft(null);
+    setInkPreview({});
     pointer.current = null;
   }, []);
   const redo = useCallback(() => {
@@ -542,6 +551,7 @@ export default function App({ pdfjs, createOcrWorker }) {
     setLaserTrail([]);
     setTool("move");
     setDraft(null);
+    setInkPreview({});
     pointer.current = null;
     setModal(null);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -703,6 +713,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   const selectPage = (p, event) => {
     setActiveId(p.id);
     setDraft(null);
+    setInkPreview({});
     pointer.current = null;
     if (event.shiftKey && page) {
       const index = pages.findIndex((q) => q.id === p.id);
@@ -722,6 +733,7 @@ export default function App({ pdfjs, createOcrWorker }) {
     if (!id) return;
     setActiveId(id);
     setDraft(null);
+    setInkPreview({});
     pointer.current = null;
     stage.current?.scrollTo({ top: 0, left: 0 });
   };
@@ -735,6 +747,7 @@ export default function App({ pdfjs, createOcrWorker }) {
     setActiveId(next.id);
     setSelected(new Set([next.id]));
     setDraft(null);
+    setInkPreview({});
     pointer.current = null;
     stage.current?.scrollTo({ top: 0, left: 0 });
   };
@@ -879,6 +892,25 @@ export default function App({ pdfjs, createOcrWorker }) {
       ...(tool === "shape" ? { shapeKind } : {}),
       ...(tool === "redact" ? { ...p, width: 0, height: 0 } : { points: [p] }),
     };
+    if (tool === "pen" || tool === "highlight") {
+      const targets = [...stage.current.querySelectorAll(".page-canvas")]
+        .map((holder) => ({
+          page: pagesRef.current.find((p) => p.id === holder.dataset.pageId),
+          bounds: holder
+            .querySelector(".annotation-canvas")
+            .getBoundingClientRect(),
+        }))
+        .filter(
+          (target) =>
+            target.page && target.bounds.width > 0 && target.bounds.height > 0,
+        );
+      pointer.current = beginInkGesture(targets, annotation, {
+        x: e.clientX,
+        y: e.clientY,
+      });
+      setInkPreview(inkDrafts(pointer.current));
+      return;
+    }
     pointer.current = {
       annotation,
       origin: p,
@@ -913,6 +945,15 @@ export default function App({ pdfjs, createOcrWorker }) {
     if (current.pan) {
       stage.current.scrollLeft = current.left - (e.clientX - current.x);
       stage.current.scrollTop = current.top - (e.clientY - current.y);
+      return;
+    }
+    if (current.ink) {
+      for (const sample of [
+        ...(e.nativeEvent?.getCoalescedEvents?.() || []),
+        e,
+      ])
+        advanceInkGesture(current, { x: sample.clientX, y: sample.clientY });
+      setInkPreview(inkDrafts(current));
       return;
     }
     if (current.resizeCorner) {
@@ -1007,13 +1048,28 @@ export default function App({ pdfjs, createOcrWorker }) {
           : { ...a, points: [...a.points, p] };
     setDraft(current.annotation);
   };
-  const pointerUp = () => {
+  const pointerUp = (e) => {
     const current = pointer.current;
     pointer.current = null;
     setDraft(null);
     setCaptureRect(null);
     if (current?.capture) {
       finishCapture(current);
+      return;
+    }
+    if (current?.ink) {
+      if (e && Number.isFinite(e.clientX) && Number.isFinite(e.clientY))
+        advanceInkGesture(current, { x: e.clientX, y: e.clientY });
+      const added = inkDrafts(current);
+      setInkPreview({});
+      if (current.targets.some((target) => target.strokes.length))
+        commit(
+          pagesRef.current.map((p) =>
+            added[p.id]?.length
+              ? { ...p, annotations: [...p.annotations, ...added[p.id]] }
+              : p,
+          ),
+        );
       return;
     }
     if (!current || current.pan) return;
@@ -1697,7 +1753,13 @@ export default function App({ pdfjs, createOcrWorker }) {
                                   : displayWidth
                               }
                               tool={tool}
-                              draft={editingPageId === target.id ? draft : null}
+                              draft={
+                                inkPreview[target.id]?.length
+                                  ? inkPreview[target.id]
+                                  : editingPageId === target.id
+                                    ? draft
+                                    : null
+                              }
                               selectedShape={shapeFor(target)}
                               onShapeResize={(e, corner, annotation, box) =>
                                 beginShapeResize(
@@ -1720,6 +1782,7 @@ export default function App({ pdfjs, createOcrWorker }) {
                                 pointer.current = null;
                                 setCaptureRect(null);
                                 setDraft(null);
+                                setInkPreview({});
                               }}
                             />
                           </section>
