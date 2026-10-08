@@ -1759,13 +1759,22 @@ export default function App({ pdfjs, createOcrWorker }) {
                   >
                     <legend>단어를 검색할 페이지</legend>
                     {[
-                      ["current", "현재 페이지"],
+                      [
+                        "current",
+                        "현재 페이지",
+                        "지금 보고 있는 한 페이지에서만 단어를 찾습니다.",
+                      ],
                       [
                         "selected",
-                        `목록에서 선택한 페이지 (${selected.size}쪽)`,
+                        `선택한 페이지 (현재 ${selected.size}쪽 선택)`,
+                        "상단 미리보기 목록에서 체크한 여러 페이지에서 단어를 찾습니다.",
                       ],
-                      ["all", `전체 페이지 (${pages.length}쪽)`],
-                    ].map(([value, title]) => (
+                      [
+                        "all",
+                        `전체 페이지 (${pages.length}쪽)`,
+                        "문서의 모든 페이지에서 단어를 찾습니다.",
+                      ],
+                    ].map(([value, title, description]) => (
                       <label
                         key={value}
                         className={`compression-option ${ocrScope === value ? "selected" : ""}`}
@@ -1780,6 +1789,7 @@ export default function App({ pdfjs, createOcrWorker }) {
                         />
                         <span>
                           <strong>{title}</strong>
+                          <small>{description}</small>
                         </span>
                       </label>
                     ))}
