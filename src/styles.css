@@ -2216,3 +2216,23 @@ input[type="radio"] {
     gap: 8px;
   }
 }
+
+.laser-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 12;
+  filter: drop-shadow(0 0 4px #ff3030);
+}
+.laser-active,
+.laser-active .page-canvas {
+  cursor: none;
+}
+.fullscreen-presentation .slide-toolbar {
+  justify-content: center;
+}
+.fullscreen-presentation .document-stage {
+  padding: 12px 18px;
+}

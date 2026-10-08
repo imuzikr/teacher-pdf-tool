@@ -112,6 +112,9 @@ export default function App({ pdfjs, createOcrWorker }) {
   const [activeId, setActiveId] = useState(null);
   const [zoom, setZoom] = useState(100);
   const [slide, setSlide] = useState(false);
+  const [presenting, setPresenting] = useState(false);
+  const [laserPoint, setLaserPoint] = useState(null);
+  const [laserTrail, setLaserTrail] = useState([]);
   const [tool, setTool] = useState("move");
   const [color, setColor] = useState("#087f5b");
   const [size, setSize] = useState(0.004);
@@ -460,13 +463,19 @@ export default function App({ pdfjs, createOcrWorker }) {
   };
   const exitSlide = () => {
     setSlide(false);
+    setPresenting(false);
+    setLaserPoint(null);
+    setLaserTrail([]);
     setTool("move");
     setDraft(null);
     pointer.current = null;
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   };
-  const startSlide = () => {
+  const startSlide = (mode) => {
     if (!pages.length) return;
+    setPresenting(mode === "present");
+    setLaserPoint(null);
+    setLaserTrail([]);
     setSlide(true);
     setZoom(100);
     setTool("move");
@@ -476,12 +485,52 @@ export default function App({ pdfjs, createOcrWorker }) {
     const change = () => {
       if (!document.fullscreenElement) {
         setSlide(false);
+        setPresenting(false);
+        setLaserPoint(null);
+        setLaserTrail([]);
         setTool("move");
       }
     };
     document.addEventListener("fullscreenchange", change);
     return () => document.removeEventListener("fullscreenchange", change);
   }, []);
+  useEffect(() => {
+    if (!slide || tool !== "laser") {
+      setLaserPoint(null);
+      setLaserTrail([]);
+      return;
+    }
+    const timer = setInterval(() => {
+      const cutoff = Date.now() - 450;
+      setLaserTrail((old) =>
+        old.some((p) => p.time < cutoff)
+          ? old.filter((p) => p.time >= cutoff)
+          : old,
+      );
+    }, 50);
+    return () => clearInterval(timer);
+  }, [slide, tool]);
+  useEffect(() => {
+    setLaserPoint(null);
+    setLaserTrail([]);
+  }, [activeId]);
+  const moveLaser = (event) => {
+    if (!slide || tool !== "laser") return;
+    const bounds = workspace.current.getBoundingClientRect();
+    const p = {
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top,
+      time: Date.now(),
+    };
+    setLaserPoint(p);
+    setLaserTrail((old) =>
+      [...old.filter((q) => q.time >= p.time - 450), p].slice(-36),
+    );
+  };
+  const clearLaser = () => {
+    setLaserPoint(null);
+    setLaserTrail([]);
+  };
   const selectPage = (p, event) => {
     setActiveId(p.id);
     setDraft(null);
@@ -529,7 +578,8 @@ export default function App({ pdfjs, createOcrWorker }) {
     );
   };
   const pointerDown = (e) => {
-    if (operation.current || !page || e.button !== 0) return;
+    if (operation.current || !page || e.button !== 0 || tool === "laser")
+      return;
     if (
       tool === "redact" &&
       regionSession &&
@@ -726,6 +776,11 @@ export default function App({ pdfjs, createOcrWorker }) {
         e.preventDefault();
         navigate(-1);
       }
+      if (e.key.toLowerCase() === "l" && !e.ctrlKey && !e.metaKey) {
+        setTool((old) => (old === "laser" ? "move" : "laser"));
+        return;
+      }
+      if (presenting) return;
       const keys = {
         q: "move",
         v: "select",
@@ -787,7 +842,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   return (
     <div
       ref={workspace}
-      className={`app ${slide ? "presentation-mode" : ""}`}
+      className={`app ${slide ? "presentation-mode" : ""} ${presenting ? "fullscreen-presentation" : ""}`}
       onDragOver={(e) => {
         if (Array.from(e.dataTransfer.types).includes("Files")) {
           e.preventDefault();
@@ -1095,7 +1150,7 @@ export default function App({ pdfjs, createOcrWorker }) {
               )}
 
               <section className="document-area" aria-label="문서 작업 공간">
-                {page && (
+                {page && !presenting && (
                   <div
                     className={`document-heading ${slide ? "slide-heading" : ""}`}
                   >
@@ -1144,6 +1199,13 @@ export default function App({ pdfjs, createOcrWorker }) {
                             onClick={() => setZoom(100)}
                           >
                             <CornersOut size={16} /> 화면에 맞춤
+                          </button>
+                          <button
+                            className="text-button"
+                            onClick={() => startSlide("present")}
+                            disabled={!!busy}
+                          >
+                            <Presentation size={16} /> 프레젠테이션
                           </button>
                         </div>
                       )}
@@ -1240,7 +1302,10 @@ export default function App({ pdfjs, createOcrWorker }) {
                 )}
                 <div
                   ref={stage}
-                  className={`document-stage ${!page ? "empty-stage" : ""}`}
+                  className={`document-stage ${!page ? "empty-stage" : ""} ${slide && tool === "laser" ? "laser-active" : ""}`}
+                  onPointerMove={moveLaser}
+                  onPointerLeave={clearLaser}
+                  onPointerCancel={clearLaser}
                 >
                   {page ? (
                     <PageCanvas
@@ -1299,42 +1364,46 @@ export default function App({ pdfjs, createOcrWorker }) {
 
       {slide ? (
         <>
-          <div className="slide-options">
-            <span>
-              {tool === "move"
-                ? "드래그로 화면을 이동하세요. 방향키로 페이지를 넘길 수 있어요."
-                : tool === "select"
-                  ? "추가한 필기·텍스트·서명을 드래그해 이동하세요."
-                  : tool === "erase"
-                    ? "지울 필기나 텍스트를 클릭하세요."
-                    : "문서 위에 바로 필기하세요."}
-            </span>
-            {["pen", "highlight", "text"].includes(tool) && (
-              <div className="drawing-options">
-                <label>
-                  색상{" "}
-                  <input
-                    type="color"
-                    aria-label="필기 색상"
-                    value={color}
-                    onChange={(e) => setColor(e.target.value)}
-                  />
-                </label>
-                <label>
-                  크기{" "}
-                  <input
-                    type="range"
-                    aria-label="필기 크기"
-                    min="0.002"
-                    max="0.015"
-                    step="0.001"
-                    value={size}
-                    onChange={(e) => setSize(Number(e.target.value))}
-                  />
-                </label>
-              </div>
-            )}
-          </div>
+          {!presenting && (
+            <div className="slide-options">
+              <span>
+                {tool === "laser"
+                  ? "마우스를 움직여 가리키세요. L 키로 레이저 포인터를 켜고 끌 수 있어요."
+                  : tool === "move"
+                    ? "드래그로 화면을 이동하세요. 방향키로 페이지를 넘길 수 있어요."
+                    : tool === "select"
+                      ? "추가한 필기·텍스트·서명을 드래그해 이동하세요."
+                      : tool === "erase"
+                        ? "지울 필기나 텍스트를 클릭하세요."
+                        : "문서 위에 바로 필기하세요."}
+              </span>
+              {["pen", "highlight", "text"].includes(tool) && (
+                <div className="drawing-options">
+                  <label>
+                    색상{" "}
+                    <input
+                      type="color"
+                      aria-label="필기 색상"
+                      value={color}
+                      onChange={(e) => setColor(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    크기{" "}
+                    <input
+                      type="range"
+                      aria-label="필기 크기"
+                      min="0.002"
+                      max="0.015"
+                      step="0.001"
+                      value={size}
+                      onChange={(e) => setSize(Number(e.target.value))}
+                    />
+                  </label>
+                </div>
+              )}
+            </div>
+          )}
           <footer className="slide-toolbar">
             <div className="slide-toolgroup">
               <ToolButton
@@ -1355,52 +1424,69 @@ export default function App({ pdfjs, createOcrWorker }) {
                 다음
               </ToolButton>
             </div>
+            {!presenting && (
+              <div className="slide-toolgroup">
+                {[
+                  [Hand, "이동", "move"],
+                  [Cursor, "선택", "select"],
+                  [PencilSimple, "펜", "pen"],
+                  [Highlighter, "형광펜", "highlight"],
+                  [TextT, "텍스트", "text"],
+                  [Eraser, "지우개", "erase"],
+                ].map(([Icon, label, value]) => (
+                  <ToolButton
+                    key={value}
+                    icon={Icon}
+                    active={tool === value}
+                    onClick={() => {
+                      setTool(value);
+                      if (value === "highlight") setColor("#f2bc3d");
+                      else if (color === "#f2bc3d") setColor("#087f5b");
+                    }}
+                  >
+                    {label}
+                  </ToolButton>
+                ))}
+              </div>
+            )}
             <div className="slide-toolgroup">
-              {[
-                [Hand, "이동", "move"],
-                [Cursor, "선택", "select"],
-                [PencilSimple, "펜", "pen"],
-                [Highlighter, "형광펜", "highlight"],
-                [TextT, "텍스트", "text"],
-                [Eraser, "지우개", "erase"],
-              ].map(([Icon, label, value]) => (
+              <ToolButton
+                icon={Cursor}
+                active={tool === "laser"}
+                onClick={() => {
+                  setTool((old) => (old === "laser" ? "move" : "laser"));
+                  setDraft(null);
+                  pointer.current = null;
+                }}
+              >
+                레이저 포인터
+              </ToolButton>
+            </div>
+            {!presenting && (
+              <div className="slide-toolgroup">
                 <ToolButton
-                  key={value}
-                  icon={Icon}
-                  active={tool === value}
-                  onClick={() => {
-                    setTool(value);
-                    if (value === "highlight") setColor("#f2bc3d");
-                    else if (color === "#f2bc3d") setColor("#087f5b");
-                  }}
+                  icon={ArrowUUpLeft}
+                  disabled={!past.current.length}
+                  onClick={undo}
                 >
-                  {label}
+                  취소
                 </ToolButton>
-              ))}
-            </div>
-            <div className="slide-toolgroup">
-              <ToolButton
-                icon={ArrowUUpLeft}
-                disabled={!past.current.length}
-                onClick={undo}
-              >
-                취소
-              </ToolButton>
-              <ToolButton
-                icon={ArrowUUpRight}
-                disabled={!future.current.length}
-                onClick={redo}
-              >
-                다시
-              </ToolButton>
-              <ToolButton
-                icon={Trash}
-                disabled={!page?.annotations.length}
-                onClick={() => setModal({ type: "clear" })}
-              >
-                쪽 지우기
-              </ToolButton>
-            </div>
+                <ToolButton
+                  icon={ArrowUUpRight}
+                  disabled={!future.current.length}
+                  onClick={redo}
+                >
+                  다시
+                </ToolButton>
+                <ToolButton
+                  icon={Trash}
+                  disabled={!page?.annotations.length}
+                  onClick={() => setModal({ type: "clear" })}
+                >
+                  쪽 지우기
+                </ToolButton>
+              </div>
+            )}
             <div className="slide-toolgroup">
               <button
                 className="icon-button"
@@ -1422,6 +1508,14 @@ export default function App({ pdfjs, createOcrWorker }) {
               <ToolButton icon={CornersOut} onClick={() => setZoom(100)}>
                 맞춤
               </ToolButton>
+              {!presenting && (
+                <ToolButton
+                  icon={Presentation}
+                  onClick={() => startSlide("present")}
+                >
+                  프레젠테이션
+                </ToolButton>
+              )}
               <ToolButton
                 icon={SignOut}
                 className="primary"
@@ -1430,12 +1524,14 @@ export default function App({ pdfjs, createOcrWorker }) {
                 종료
               </ToolButton>
             </div>
-            <button
-              className="shortcut-link"
-              onClick={() => setModal({ type: "shortcuts" })}
-            >
-              <Keyboard size={15} /> 단축키 보기
-            </button>
+            {!presenting && (
+              <button
+                className="shortcut-link"
+                onClick={() => setModal({ type: "shortcuts" })}
+              >
+                <Keyboard size={15} /> 단축키 보기
+              </button>
+            )}
           </footer>
         </>
       ) : (
@@ -1487,6 +1583,21 @@ export default function App({ pdfjs, createOcrWorker }) {
         </footer>
       )}
 
+      {slide && tool === "laser" && laserPoint && (
+        <svg className="laser-overlay" aria-hidden="true">
+          <polyline
+            points={laserTrail.map((p) => `${p.x},${p.y}`).join(" ")}
+            fill="none"
+            stroke="#ff3030"
+            strokeWidth="4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            opacity="0.65"
+          />
+          <circle cx={laserPoint.x} cy={laserPoint.y} r="6" fill="#ff3030" />
+          <circle cx={laserPoint.x} cy={laserPoint.y} r="2" fill="#fff4e5" />
+        </svg>
+      )}
       {dropOver && (
         <div className="drop-overlay">
           <UploadSimple size={52} />
@@ -2113,6 +2224,7 @@ export default function App({ pdfjs, createOcrWorker }) {
                   ["형광펜", "H"],
                   ["텍스트", "T"],
                   ["지우개", "E"],
+                  ["레이저 포인터 켜기 / 끄기", "L"],
                   ["이전 / 다음 페이지", "← / →"],
                   ["실행 취소", "Ctrl / ⌘ + Z"],
                   ["다시 실행", "Ctrl / ⌘ + Shift + Z"],

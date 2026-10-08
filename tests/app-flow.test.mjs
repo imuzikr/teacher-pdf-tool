@@ -616,6 +616,77 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     await result.document.destroy();
     await click("슬라이드 재생");
     assert.ok(document.querySelector(".presentation-mode"));
+    const editedCount = document.querySelectorAll(
+      ".annotation-indicator",
+    ).length;
+    await click("레이저 포인터");
+    const laserStage = document.querySelector(".document-stage");
+    await act(async () => {
+      for (const x of [100, 130])
+        laserStage.dispatchEvent(
+          new window.MouseEvent("pointermove", {
+            bubbles: true,
+            clientX: x,
+            clientY: 120,
+          }),
+        );
+    });
+    assert.ok(document.querySelector(".laser-overlay circle"));
+    assert.equal(
+      document
+        .querySelector(".laser-overlay polyline")
+        .getAttribute("points")
+        .split(" ").length,
+      2,
+    );
+    assert.equal(
+      document.querySelectorAll(".annotation-indicator").length,
+      editedCount,
+      "laser is transient and adds no PDF annotation",
+    );
+    await click("프레젠테이션");
+    assert.ok(document.querySelector(".fullscreen-presentation"));
+    assert.equal(document.querySelector(".document-heading"), null);
+    assert.equal(document.querySelector(".slide-options"), null);
+    assert.equal(document.querySelector(".laser-overlay"), null);
+    const pageBefore = document.querySelector(".slide-page-number").textContent;
+    await act(async () =>
+      document.dispatchEvent(
+        new window.KeyboardEvent("keydown", {
+          key: "ArrowRight",
+          bubbles: true,
+        }),
+      ),
+    );
+    assert.notEqual(
+      document.querySelector(".slide-page-number").textContent,
+      pageBefore,
+    );
+    await act(async () =>
+      document.dispatchEvent(
+        new window.KeyboardEvent("keydown", {
+          key: "ArrowLeft",
+          bubbles: true,
+        }),
+      ),
+    );
+    assert.equal(
+      document.querySelector(".slide-page-number").textContent,
+      pageBefore,
+    );
+    await act(async () =>
+      document.dispatchEvent(
+        new window.KeyboardEvent("keydown", { key: "l", bubbles: true }),
+      ),
+    );
+    assert.ok(document.querySelector(".laser-active"));
+    await act(async () =>
+      document.dispatchEvent(
+        new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    assert.equal(document.querySelector(".presentation-mode"), null);
+    await click("슬라이드 재생");
     await click("펜");
     assert.ok(document.querySelector(".tool-pen"));
     const slideCanvas = document.querySelector(
