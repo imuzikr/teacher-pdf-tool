@@ -2520,3 +2520,70 @@ input[type="radio"] {
   top: 100%;
   cursor: nwse-resize;
 }
+
+.document-viewport {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+}
+.document-viewport > .document-stage {
+  width: 100%;
+}
+.canvas-zoom {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translate(-50%, 6px);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 11px;
+  border: 1px solid #d4e5d68c;
+  border-radius: 14px;
+  background: #f4faf0c9;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 4px 18px #0002;
+  z-index: 12;
+  color: #315e48;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+.canvas-zoom.visible,
+.canvas-zoom:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+.presentation-mode .canvas-zoom .icon-button {
+  color: #315e48;
+}
+.canvas-zoom > span {
+  min-width: 42px;
+  text-align: center;
+  font-size: 12px;
+}
+.canvas-zoom .tool-button {
+  height: 33px;
+  padding: 0 10px;
+  background: transparent;
+  border-color: #abc7b4;
+  border-radius: 9px;
+}
+@media (hover: none), (pointer: coarse) {
+  .canvas-zoom {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(-50%, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .canvas-zoom {
+    transition: none;
+  }
+}

@@ -151,6 +151,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   const [tool, setTool] = useState("move");
   const [shapeKind, setShapeKind] = useState("line");
   const [shapeMenu, setShapeMenu] = useState(false);
+  const [zoomVisible, setZoomVisible] = useState(false);
   const [selectedShapeId, setSelectedShapeId] = useState(null);
   const colorMemory = useRef({
     pen: "#087f5b",
@@ -1608,152 +1609,195 @@ export default function App({ pdfjs, createOcrWorker }) {
                   </div>
                 )}
                 <div
-                  ref={stage}
-                  className={`document-stage ${!page ? "empty-stage" : ""} ${slide && tool === "laser" ? "laser-active" : ""}`}
-                  onPointerMove={moveLaser}
-                  onPointerLeave={clearLaser}
-                  onPointerCancel={clearLaser}
+                  className="document-viewport"
+                  onPointerMove={(e) => {
+                    if (!slide || !page) return;
+                    const bounds = e.currentTarget.getBoundingClientRect();
+                    setZoomVisible(e.clientY >= bounds.bottom - 90);
+                  }}
+                  onPointerLeave={() => setZoomVisible(false)}
                 >
-                  {page ? (
-                    practiceReference ? (
-                      <div className="two-page-spread">
-                        <section
-                          className="practice-pane"
-                          aria-label="왼쪽 참고 페이지"
-                          style={{ width: practiceWidth(practiceReference) }}
-                        >
-                          <div className="practice-pane-label">
-                            참고 페이지 · {pages.indexOf(practiceReference) + 1}
-                            쪽
-                          </div>
-                          <PageCanvas
-                            page={practiceReference}
-                            width={practiceWidth(practiceReference)}
-                            tool={tool === "capture" ? "capture" : "move"}
-                            captureRect={
-                              captureRect?.pageId === practiceReference.id
-                                ? captureRect
-                                : null
-                            }
-                            onPointerDown={
-                              tool === "capture"
-                                ? (e) => beginCapture(e, practiceReference)
-                                : tool === "move"
-                                  ? beginPan
-                                  : undefined
-                            }
-                            onPointerMove={pointerMove}
-                            onPointerUp={pointerUp}
-                            onPointerCancel={() => {
-                              pointer.current = null;
-                              setCaptureRect(null);
-                            }}
-                          />
-                        </section>
-                        <section
-                          className="practice-pane"
-                          aria-label="오른쪽 연습 페이지"
-                          style={{ width: practiceWidth(page) }}
-                        >
-                          <div className="practice-pane-label">
-                            연습 페이지 · {activeIndex + 1}쪽
-                          </div>
-                          <PageCanvas
-                            page={displayedPage}
-                            width={displayWidth}
-                            tool={tool}
-                            draft={draft}
-                            selectedShape={
-                              tool === "select"
-                                ? draft?.id === selectedShapeId
-                                  ? draft
-                                  : page.annotations.find(
-                                      (a) => a.id === selectedShapeId,
-                                    )
-                                : null
-                            }
-                            onShapeResize={beginShapeResize}
-                            captureRect={
-                              captureRect?.pageId === page.id
-                                ? captureRect
-                                : null
-                            }
-                            onPointerCancel={() => {
-                              pointer.current = null;
-                              setCaptureRect(null);
-                              setDraft(null);
-                            }}
-                            onPointerDown={pointerDown}
-                            onPointerMove={pointerMove}
-                            onPointerUp={pointerUp}
-                          />
-                        </section>
-                      </div>
+                  <div
+                    ref={stage}
+                    className={`document-stage ${!page ? "empty-stage" : ""} ${slide && tool === "laser" ? "laser-active" : ""}`}
+                    onPointerMove={moveLaser}
+                    onPointerLeave={clearLaser}
+                    onPointerCancel={clearLaser}
+                  >
+                    {page ? (
+                      practiceReference ? (
+                        <div className="two-page-spread">
+                          <section
+                            className="practice-pane"
+                            aria-label="왼쪽 참고 페이지"
+                            style={{ width: practiceWidth(practiceReference) }}
+                          >
+                            <div className="practice-pane-label">
+                              참고 페이지 ·{" "}
+                              {pages.indexOf(practiceReference) + 1}쪽
+                            </div>
+                            <PageCanvas
+                              page={practiceReference}
+                              width={practiceWidth(practiceReference)}
+                              tool={tool === "capture" ? "capture" : "move"}
+                              captureRect={
+                                captureRect?.pageId === practiceReference.id
+                                  ? captureRect
+                                  : null
+                              }
+                              onPointerDown={
+                                tool === "capture"
+                                  ? (e) => beginCapture(e, practiceReference)
+                                  : tool === "move"
+                                    ? beginPan
+                                    : undefined
+                              }
+                              onPointerMove={pointerMove}
+                              onPointerUp={pointerUp}
+                              onPointerCancel={() => {
+                                pointer.current = null;
+                                setCaptureRect(null);
+                              }}
+                            />
+                          </section>
+                          <section
+                            className="practice-pane"
+                            aria-label="오른쪽 연습 페이지"
+                            style={{ width: practiceWidth(page) }}
+                          >
+                            <div className="practice-pane-label">
+                              연습 페이지 · {activeIndex + 1}쪽
+                            </div>
+                            <PageCanvas
+                              page={displayedPage}
+                              width={displayWidth}
+                              tool={tool}
+                              draft={draft}
+                              selectedShape={
+                                tool === "select"
+                                  ? draft?.id === selectedShapeId
+                                    ? draft
+                                    : page.annotations.find(
+                                        (a) => a.id === selectedShapeId,
+                                      )
+                                  : null
+                              }
+                              onShapeResize={beginShapeResize}
+                              captureRect={
+                                captureRect?.pageId === page.id
+                                  ? captureRect
+                                  : null
+                              }
+                              onPointerCancel={() => {
+                                pointer.current = null;
+                                setCaptureRect(null);
+                                setDraft(null);
+                              }}
+                              onPointerDown={pointerDown}
+                              onPointerMove={pointerMove}
+                              onPointerUp={pointerUp}
+                            />
+                          </section>
+                        </div>
+                      ) : (
+                        <PageCanvas
+                          page={displayedPage}
+                          width={displayWidth}
+                          tool={tool}
+                          draft={draft}
+                          selectedShape={
+                            tool === "select"
+                              ? draft?.id === selectedShapeId
+                                ? draft
+                                : page.annotations.find(
+                                    (a) => a.id === selectedShapeId,
+                                  )
+                              : null
+                          }
+                          onShapeResize={beginShapeResize}
+                          captureRect={
+                            captureRect?.pageId === page.id ? captureRect : null
+                          }
+                          onPointerCancel={() => {
+                            pointer.current = null;
+                            setCaptureRect(null);
+                            setDraft(null);
+                          }}
+                          onPointerDown={pointerDown}
+                          onPointerMove={pointerMove}
+                          onPointerUp={pointerUp}
+                        />
+                      )
                     ) : (
-                      <PageCanvas
-                        page={displayedPage}
-                        width={displayWidth}
-                        tool={tool}
-                        draft={draft}
-                        selectedShape={
-                          tool === "select"
-                            ? draft?.id === selectedShapeId
-                              ? draft
-                              : page.annotations.find(
-                                  (a) => a.id === selectedShapeId,
-                                )
-                            : null
-                        }
-                        onShapeResize={beginShapeResize}
-                        captureRect={
-                          captureRect?.pageId === page.id ? captureRect : null
-                        }
-                        onPointerCancel={() => {
-                          pointer.current = null;
-                          setCaptureRect(null);
-                          setDraft(null);
-                        }}
-                        onPointerDown={pointerDown}
-                        onPointerMove={pointerMove}
-                        onPointerUp={pointerUp}
-                      />
-                    )
-                  ) : (
-                    <div className="empty-state">
-                      <h1>
-                        수업 준비가
-                        <br />
-                        <em>조금 더 가벼워지도록.</em>
-                      </h1>
-                      <button
-                        className="upload-zone"
-                        disabled={!!busy}
-                        onClick={() => upload.current.click()}
-                      >
-                        <UploadSimple size={28} />
-                        <strong>PDF 파일을 여기에 놓아주세요</strong>
-                        <span>
-                          또는 클릭해서 파일 선택 · 여러 파일 추가 가능
-                        </span>
-                        <span className="file-limit">파일당 최대 100MB</span>
-                      </button>
-                      <div className="empty-features">
-                        <span>
-                          <FolderPlus size={18} />
-                          모으고 편집
-                        </span>
-                        <span>
-                          <ShieldCheck size={18} />
-                          안전하게 가리기
-                        </span>
-                        <span>
-                          <Presentation size={18} />
-                          수업하며 필기
-                        </span>
+                      <div className="empty-state">
+                        <h1>
+                          수업 준비가
+                          <br />
+                          <em>조금 더 가벼워지도록.</em>
+                        </h1>
+                        <button
+                          className="upload-zone"
+                          disabled={!!busy}
+                          onClick={() => upload.current.click()}
+                        >
+                          <UploadSimple size={28} />
+                          <strong>PDF 파일을 여기에 놓아주세요</strong>
+                          <span>
+                            또는 클릭해서 파일 선택 · 여러 파일 추가 가능
+                          </span>
+                          <span className="file-limit">파일당 최대 100MB</span>
+                        </button>
+                        <div className="empty-features">
+                          <span>
+                            <FolderPlus size={18} />
+                            모으고 편집
+                          </span>
+                          <span>
+                            <ShieldCheck size={18} />
+                            안전하게 가리기
+                          </span>
+                          <span>
+                            <Presentation size={18} />
+                            수업하며 필기
+                          </span>
+                        </div>
+                        <p className="privacy-note">
+                          <LockKey size={13} /> 파일을 서버에 업로드하지
+                          않습니다.
+                        </p>
                       </div>
-                      <p className="privacy-note">
-                        <LockKey size={13} /> 파일을 서버에 업로드하지 않습니다.
-                      </p>
+                    )}
+                  </div>
+                  {slide && page && (
+                    <div
+                      className={`canvas-zoom ${zoomVisible ? "visible" : ""}`}
+                      role="group"
+                      aria-label="캔버스 확대·축소"
+                      onPointerMove={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        className="icon-button"
+                        aria-label="축소"
+                        disabled={zoom <= 30}
+                        onClick={() => setZoom((z) => Math.max(30, z - 10))}
+                      >
+                        <Minus size={20} />
+                      </button>
+                      <span aria-live="polite">{zoom}%</span>
+                      <button
+                        className="icon-button"
+                        aria-label="확대"
+                        disabled={zoom >= 250}
+                        onClick={() => setZoom((z) => Math.min(250, z + 10))}
+                      >
+                        <Plus size={20} />
+                      </button>
+                      <ToolButton
+                        icon={CornersOut}
+                        onClick={() => setZoom(100)}
+                      >
+                        맞춤
+                      </ToolButton>
                     </div>
                   )}
                 </div>
@@ -1949,26 +1993,6 @@ export default function App({ pdfjs, createOcrWorker }) {
               </div>
             )}
             <div className="slide-toolgroup">
-              <button
-                className="icon-button"
-                aria-label="축소"
-                disabled={zoom <= 30}
-                onClick={() => setZoom((z) => Math.max(30, z - 10))}
-              >
-                <Minus size={20} />
-              </button>
-              <span>{zoom}%</span>
-              <button
-                className="icon-button"
-                aria-label="확대"
-                disabled={zoom >= 250}
-                onClick={() => setZoom((z) => Math.min(250, z + 10))}
-              >
-                <Plus size={20} />
-              </button>
-              <ToolButton icon={CornersOut} onClick={() => setZoom(100)}>
-                맞춤
-              </ToolButton>
               {!presenting && (
                 <>
                   <ToolButton

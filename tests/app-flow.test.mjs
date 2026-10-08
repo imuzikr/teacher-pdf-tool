@@ -636,6 +636,67 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     await result.document.destroy();
     await click("슬라이드 재생");
     assert.ok(document.querySelector(".presentation-mode"));
+    const zoomOverlay = document.querySelector(".canvas-zoom");
+    assert.ok(zoomOverlay && zoomOverlay.closest(".document-viewport"));
+    assert.equal(
+      document.querySelector('.slide-toolbar [aria-label="확대"]'),
+      null,
+    );
+    assert.ok(!zoomOverlay.classList.contains("visible"));
+    const viewport = document.querySelector(".document-viewport");
+    viewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 1100,
+      height: 800,
+      bottom: 800,
+    });
+    await act(async () =>
+      viewport.dispatchEvent(
+        new window.MouseEvent("pointermove", {
+          bubbles: true,
+          clientX: 550,
+          clientY: 760,
+        }),
+      ),
+    );
+    assert.ok(
+      zoomOverlay.classList.contains("visible"),
+      "controls reveal near the viewport bottom",
+    );
+    await act(async () =>
+      zoomOverlay.querySelector('[aria-label="확대"]').click(),
+    );
+    await settle();
+    assert.match(zoomOverlay.textContent, /110%/);
+    await act(async () =>
+      zoomOverlay.querySelector('[aria-label="축소"]').click(),
+    );
+    await settle();
+    assert.match(zoomOverlay.textContent, /100%/);
+    await act(async () =>
+      viewport.dispatchEvent(
+        new window.MouseEvent("pointermove", {
+          bubbles: true,
+          clientX: 550,
+          clientY: 200,
+        }),
+      ),
+    );
+    assert.ok(
+      !zoomOverlay.classList.contains("visible"),
+      "controls hide away from the lower area",
+    );
+    await act(async () =>
+      zoomOverlay.querySelector('[aria-label="확대"]').focus(),
+    );
+    assert.equal(
+      document.activeElement,
+      zoomOverlay.querySelector('[aria-label="확대"]'),
+      "hidden overlay remains keyboard focusable",
+    );
+    await act(async () => document.activeElement.blur());
+
     const editedCount = document.querySelectorAll(
       ".annotation-indicator",
     ).length;
