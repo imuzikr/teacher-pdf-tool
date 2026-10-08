@@ -819,6 +819,111 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       captureLeft + 40,
       "capture can be dragged",
     );
+    assert.ok(
+      pinned
+        .querySelector(".capture-handle")
+        .firstElementChild.classList.contains("capture-size-buttons"),
+      "zoom controls are anchored on the left",
+    );
+    const widthBeforeResize = parseFloat(pinned.style.width);
+    const leftBeforeResize = parseFloat(pinned.style.left);
+    const edge = pinned.querySelector(".capture-resize-e");
+    await act(async () => {
+      for (const [type, x] of [
+        ["pointerdown", 100],
+        ["pointermove", 180],
+        ["pointerup", 180],
+      ]) {
+        const e = new window.MouseEvent(type, {
+          bubbles: true,
+          clientX: x,
+          clientY: 100,
+          button: 0,
+        });
+        Object.defineProperty(e, "pointerId", { value: 5 });
+        edge.dispatchEvent(e);
+      }
+    });
+    assert.equal(parseFloat(pinned.style.width), widthBeforeResize + 80);
+    assert.equal(parseFloat(pinned.style.left), leftBeforeResize);
+    const floatingDrawing = pinned.querySelector(".capture-drawing");
+    floatingDrawing.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 400,
+      height: 200,
+    });
+    await click("펜");
+    const pdfOverlayBeforeCaptureInk = document
+      .querySelector(".document-stage .annotation-canvas")
+      .toDataURL();
+    await act(async () => {
+      for (const [type, x, y] of [
+        ["pointerdown", 0.2, 0.2],
+        ["pointermove", 0.7, 0.5],
+        ["pointerup", 0.7, 0.5],
+      ]) {
+        const e = new window.MouseEvent(type, {
+          bubbles: true,
+          clientX: x * 400,
+          clientY: y * 200,
+          button: 0,
+        });
+        Object.defineProperty(e, "pointerId", { value: 6 });
+        floatingDrawing.dispatchEvent(e);
+      }
+    });
+    assert.equal(
+      floatingDrawing.querySelectorAll("polyline").length,
+      1,
+      "pen works on floating capture",
+    );
+    assert.equal(
+      document.querySelector(".document-stage .annotation-canvas").toDataURL(),
+      pdfOverlayBeforeCaptureInk,
+      "capture ink does not modify PDF annotations",
+    );
+    const pointsBeforeZoom = floatingDrawing
+      .querySelector("polyline")
+      .getAttribute("points");
+    await act(async () =>
+      pinned.querySelector('[aria-label="캡처 확대"]').click(),
+    );
+    assert.equal(
+      floatingDrawing.querySelector("polyline").getAttribute("points"),
+      pointsBeforeZoom,
+      "ink stays aligned when capture resizes",
+    );
+    await click("레이저 포인터");
+    await act(async () =>
+      floatingDrawing.dispatchEvent(
+        new window.MouseEvent("pointermove", {
+          bubbles: true,
+          clientX: 150,
+          clientY: 100,
+        }),
+      ),
+    );
+    assert.ok(
+      document.querySelector(".laser-overlay circle"),
+      "laser works over capture",
+    );
+    await click("지우개");
+    await act(async () =>
+      floatingDrawing.dispatchEvent(
+        new window.MouseEvent("pointerdown", {
+          bubbles: true,
+          clientX: 180,
+          clientY: 70,
+          button: 0,
+        }),
+      ),
+    );
+    assert.equal(
+      floatingDrawing.querySelectorAll("polyline").length,
+      0,
+      "capture ink can be erased",
+    );
     await click("다음");
     assert.ok(
       document.querySelector(".pinned-capture"),
@@ -834,6 +939,44 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       `${parseInt(pageBeforeBlank) + 1} / ${baselineThumbnails + 1}`,
     );
     assert.ok(document.querySelector(".tool-pen"));
+    assert.ok(
+      document.querySelector('[aria-label="왼쪽 참고 페이지"] .page-canvas'),
+    );
+    assert.ok(
+      document.querySelector('[aria-label="오른쪽 연습 페이지"] .tool-pen'),
+    );
+    assert.equal(
+      document.querySelectorAll(".two-page-spread .page-canvas").length,
+      2,
+    );
+    await click("캡처 모드");
+    const leftCanvas = document.querySelector(
+      '[aria-label="왼쪽 참고 페이지"] .annotation-canvas',
+    );
+    const leftBounds = leftCanvas.getBoundingClientRect();
+    await act(async () => {
+      for (const [type, x, y] of [
+        ["pointerdown", 0.1, 0.1],
+        ["pointermove", 0.6, 0.5],
+        ["pointerup", 0.6, 0.5],
+      ]) {
+        const event = new window.MouseEvent(type, {
+          bubbles: true,
+          clientX: leftBounds.width * x,
+          clientY: leftBounds.height * y,
+          button: 0,
+        });
+        Object.defineProperty(event, "pointerId", { value: 7 });
+        leftCanvas.dispatchEvent(event);
+      }
+    });
+    for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
+      await settle();
+    assert.equal(
+      document.querySelectorAll(".pinned-capture").length,
+      2,
+      "reference page supports capture without leaving two-page view",
+    );
     await click("종료");
     await click("취소");
     assert.ok(document.querySelector(".presentation-mode"));

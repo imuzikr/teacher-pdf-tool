@@ -117,6 +117,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   const [presenting, setPresenting] = useState(false);
   const [captures, setCaptures] = useState([]);
   const [captureRect, setCaptureRect] = useState(null);
+  const [practicePairs, setPracticePairs] = useState({});
   const slideSession = useRef(null);
   const [laserPoint, setLaserPoint] = useState(null);
   const [laserTrail, setLaserTrail] = useState([]);
@@ -473,6 +474,7 @@ export default function App({ pdfjs, createOcrWorker }) {
     setSlide(false);
     setPresenting(false);
     setCaptures([]);
+    setPracticePairs({});
     setCaptureRect(null);
     setLaserPoint(null);
     setLaserTrail([]);
@@ -557,6 +559,7 @@ export default function App({ pdfjs, createOcrWorker }) {
       const index = next.findIndex((p) => p.id === page.id);
       next.splice(index + 1, 0, blank);
       commit(next);
+      setPracticePairs((old) => ({ ...old, [blank.id]: page.id }));
       setActiveId(blank.id);
       setSelected(new Set([blank.id]));
       setTool("pen");
@@ -677,6 +680,24 @@ export default function App({ pdfjs, createOcrWorker }) {
       page.rotation,
     );
   };
+  const beginCapture = (e, reference) => {
+    if (operation.current || e.button !== 0) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const bounds = e.currentTarget.getBoundingClientRect();
+    const origin = {
+      x: Math.max(0, Math.min(1, (e.clientX - bounds.left) / bounds.width)),
+      y: Math.max(0, Math.min(1, (e.clientY - bounds.top) / bounds.height)),
+    };
+    pointer.current = {
+      capture: true,
+      origin,
+      bounds,
+      page: reference,
+      rect: { ...origin, width: 0, height: 0 },
+    };
+    setCaptureRect({ ...pointer.current.rect, pageId: reference.id });
+    return;
+  };
   const pointerDown = (e) => {
     if (operation.current || !page || e.button !== 0 || tool === "laser")
       return;
@@ -693,19 +714,7 @@ export default function App({ pdfjs, createOcrWorker }) {
     }
     e.currentTarget.setPointerCapture(e.pointerId);
     if (tool === "capture") {
-      const bounds = e.currentTarget.getBoundingClientRect();
-      const origin = {
-        x: Math.max(0, Math.min(1, (e.clientX - bounds.left) / bounds.width)),
-        y: Math.max(0, Math.min(1, (e.clientY - bounds.top) / bounds.height)),
-      };
-      pointer.current = {
-        capture: true,
-        origin,
-        bounds,
-        page,
-        rect: { ...origin, width: 0, height: 0 },
-      };
-      setCaptureRect(pointer.current.rect);
+      beginCapture(e, page);
       return;
     }
     const p = point(e);
@@ -800,7 +809,7 @@ export default function App({ pdfjs, createOcrWorker }) {
         width: Math.abs(x - current.origin.x),
         height: Math.abs(y - current.origin.y),
       };
-      setCaptureRect(current.rect);
+      setCaptureRect({ ...current.rect, pageId: current.page.id });
       return;
     }
     if (current.pan) {
@@ -945,6 +954,23 @@ export default function App({ pdfjs, createOcrWorker }) {
     0,
   );
   const currentSize = page ? rotatedSize(page) : { width: 595, height: 842 };
+  const practiceReference =
+    slide && !presenting && practicePairs[page?.id]
+      ? pages.find((p) => p.id === practicePairs[page.id])
+      : null;
+  const practicePaneWidth = Math.max(120, (viewerSize.width - 84) / 2);
+  const practiceWidth = (p) => {
+    const dimensions = rotatedSize(p);
+    return (
+      (Math.min(
+        practicePaneWidth,
+        (Math.max(120, viewerSize.height - 76) * dimensions.width) /
+          dimensions.height,
+      ) *
+        zoom) /
+      100
+    );
+  };
   const fitWidth = Math.min(
     slide
       ? (Math.max(150, viewerSize.height - 44) * currentSize.width) /
@@ -952,7 +978,9 @@ export default function App({ pdfjs, createOcrWorker }) {
       : 570,
     Math.max(150, viewerSize.width - (slide ? 36 : 88)),
   );
-  const displayWidth = (fitWidth * zoom) / 100;
+  const displayWidth = practiceReference
+    ? practiceWidth(page)
+    : (fitWidth * zoom) / 100;
   const displayedPage =
     page && draft && pointer.current?.moveAnnotation
       ? {
@@ -1447,21 +1475,87 @@ export default function App({ pdfjs, createOcrWorker }) {
                   onPointerCancel={clearLaser}
                 >
                   {page ? (
-                    <PageCanvas
-                      page={displayedPage}
-                      width={displayWidth}
-                      tool={tool}
-                      draft={draft}
-                      captureRect={captureRect}
-                      onPointerCancel={() => {
-                        pointer.current = null;
-                        setCaptureRect(null);
-                        setDraft(null);
-                      }}
-                      onPointerDown={pointerDown}
-                      onPointerMove={pointerMove}
-                      onPointerUp={pointerUp}
-                    />
+                    practiceReference ? (
+                      <div className="two-page-spread">
+                        <section
+                          className="practice-pane"
+                          aria-label="왼쪽 참고 페이지"
+                          style={{ width: (practicePaneWidth * zoom) / 100 }}
+                        >
+                          <div className="practice-pane-label">
+                            참고 페이지 · {pages.indexOf(practiceReference) + 1}
+                            쪽
+                          </div>
+                          <PageCanvas
+                            page={practiceReference}
+                            width={practiceWidth(practiceReference)}
+                            tool={tool === "capture" ? "capture" : "move"}
+                            captureRect={
+                              captureRect?.pageId === practiceReference.id
+                                ? captureRect
+                                : null
+                            }
+                            onPointerDown={
+                              tool === "capture"
+                                ? (e) => beginCapture(e, practiceReference)
+                                : undefined
+                            }
+                            onPointerMove={pointerMove}
+                            onPointerUp={pointerUp}
+                            onPointerCancel={() => {
+                              pointer.current = null;
+                              setCaptureRect(null);
+                            }}
+                          />
+                        </section>
+                        <section
+                          className="practice-pane"
+                          aria-label="오른쪽 연습 페이지"
+                          style={{ width: (practicePaneWidth * zoom) / 100 }}
+                        >
+                          <div className="practice-pane-label">
+                            연습 페이지 · {activeIndex + 1}쪽
+                          </div>
+                          <PageCanvas
+                            page={displayedPage}
+                            width={displayWidth}
+                            tool={tool}
+                            draft={draft}
+                            captureRect={
+                              captureRect?.pageId === page.id
+                                ? captureRect
+                                : null
+                            }
+                            onPointerCancel={() => {
+                              pointer.current = null;
+                              setCaptureRect(null);
+                              setDraft(null);
+                            }}
+                            onPointerDown={pointerDown}
+                            onPointerMove={pointerMove}
+                            onPointerUp={pointerUp}
+                          />
+                        </section>
+                      </div>
+                    ) : (
+                      <PageCanvas
+                        page={displayedPage}
+                        width={displayWidth}
+                        tool={tool}
+                        draft={draft}
+                        captureRect={
+                          captureRect?.pageId === page.id ? captureRect : null
+                        }
+                        onPointerCancel={() => {
+                          pointer.current = null;
+                          setCaptureRect(null);
+                          setDraft(null);
+                        }}
+                        onPointerDown={pointerDown}
+                        onPointerMove={pointerMove}
+                        onPointerUp={pointerUp}
+                      />
+                    )
                   ) : (
                     <div className="empty-state">
                       <h1>
@@ -1763,6 +1857,11 @@ export default function App({ pdfjs, createOcrWorker }) {
           <PinnedCapture
             key={capture.id}
             capture={capture}
+            tool={tool}
+            color={color}
+            size={size}
+            onLaserMove={moveLaser}
+            onLaserLeave={clearLaser}
             onChange={(next) =>
               setCaptures((old) =>
                 old.map((c) => (c.id === next.id ? next : c)),
