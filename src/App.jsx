@@ -36,6 +36,8 @@ import {
 } from "@phosphor-icons/react";
 import { ToolButton, Modal, PageCanvas, SignaturePad } from "./components.jsx";
 import PdfAssembler from "./PdfAssembler.jsx";
+import PinnedCapture from "./PinnedCapture.jsx";
+import { createBlankPdf, captureRegion } from "./slide-tools.js";
 import {
   parseTerms,
   scanPdfWords,
@@ -113,6 +115,9 @@ export default function App({ pdfjs, createOcrWorker }) {
   const [zoom, setZoom] = useState(100);
   const [slide, setSlide] = useState(false);
   const [presenting, setPresenting] = useState(false);
+  const [captures, setCaptures] = useState([]);
+  const [captureRect, setCaptureRect] = useState(null);
+  const slideSession = useRef(null);
   const [laserPoint, setLaserPoint] = useState(null);
   const [laserTrail, setLaserTrail] = useState([]);
   const [tool, setTool] = useState("move");
@@ -317,8 +322,10 @@ export default function App({ pdfjs, createOcrWorker }) {
       notify(
         `${readableSize(bytes.length)} PDF를 다운로드했습니다.${preset ? " 원본은 그대로 유지됩니다." : ""}`,
       );
+      return true;
     } catch (e) {
       notify(`저장하지 못했습니다: ${e.message}`, true);
+      return false;
     } finally {
       operation.current = false;
       setBusy("");
@@ -461,18 +468,63 @@ export default function App({ pdfjs, createOcrWorker }) {
       source.document.destroy().catch(() => {});
     sources.current.clear();
   };
-  const exitSlide = () => {
+  const finishSlide = () => {
+    slideSession.current = null;
     setSlide(false);
     setPresenting(false);
+    setCaptures([]);
+    setCaptureRect(null);
     setLaserPoint(null);
     setLaserTrail([]);
     setTool("move");
     setDraft(null);
     pointer.current = null;
+    setModal(null);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  };
+  const exitSlide = () => {
+    if (operation.current) return;
+    if (
+      slideSession.current &&
+      pagesRef.current !== slideSession.current.pages
+    ) {
+      pointer.current = null;
+      setDraft(null);
+      setCaptureRect(null);
+      setModal({ type: "slide-exit" });
+    } else finishSlide();
+  };
+  const discardSlide = () => {
+    if (operation.current) return;
+    const session = slideSession.current;
+    if (session) {
+      setPages(session.pages);
+      setDirty(session.dirty);
+      past.current = session.past;
+      future.current = session.future;
+      setHistoryVersion((v) => v + 1);
+      setActiveId(session.activeId);
+      setSelected(session.selected);
+      for (const [id, source] of sources.current)
+        if (!session.sourceIds.has(id)) {
+          source.document.destroy().catch(() => {});
+          sources.current.delete(id);
+        }
+    }
+    finishSlide();
   };
   const startSlide = (mode) => {
     if (!pages.length) return;
+    if (!slideSession.current)
+      slideSession.current = {
+        pages: pagesRef.current,
+        dirty,
+        past: [...past.current],
+        future: [...future.current],
+        activeId,
+        selected: new Set(selected),
+        sourceIds: new Set(sources.current.keys()),
+      };
     setPresenting(mode === "present");
     setLaserPoint(null);
     setLaserTrail([]);
@@ -483,17 +535,65 @@ export default function App({ pdfjs, createOcrWorker }) {
   };
   useEffect(() => {
     const change = () => {
-      if (!document.fullscreenElement) {
-        setSlide(false);
-        setPresenting(false);
-        setLaserPoint(null);
-        setLaserTrail([]);
-        setTool("move");
-      }
+      if (!document.fullscreenElement && slideSession.current) exitSlide();
     };
     document.addEventListener("fullscreenchange", change);
     return () => document.removeEventListener("fullscreenchange", change);
-  }, []);
+  });
+  const addBlankPage = async () => {
+    if (operation.current || !page) return;
+    operation.current = true;
+    setBusy("빈 연습 페이지를 추가하는 중…");
+    try {
+      const size = rotatedSize(page);
+      const source = await loadSource(
+        await createBlankPdf(size.width, size.height),
+        "빈 연습 페이지.pdf",
+        pdfjs,
+      );
+      sources.current.set(source.id, source);
+      const [blank] = await sourcePages(source);
+      const next = [...pagesRef.current];
+      const index = next.findIndex((p) => p.id === page.id);
+      next.splice(index + 1, 0, blank);
+      commit(next);
+      setActiveId(blank.id);
+      setSelected(new Set([blank.id]));
+      setTool("pen");
+      setPresenting(false);
+      setDraft(null);
+      pointer.current = null;
+    } catch (e) {
+      notify(`빈 페이지를 추가하지 못했습니다: ${e.message}`, true);
+    } finally {
+      operation.current = false;
+      setBusy("");
+    }
+  };
+  const finishCapture = async (current) => {
+    if (current.rect.width < 0.003 || current.rect.height < 0.003) return;
+    operation.current = true;
+    setBusy("선택한 영역을 캡처하는 중…");
+    try {
+      const image = await captureRegion(current.page, current.rect);
+      setCaptures((old) => [
+        ...old,
+        {
+          ...image,
+          id: uid(),
+          x: 20 + (old.length % 4) * 24,
+          y: 20 + (old.length % 4) * 24,
+          width: Math.min(360, window.innerWidth - 40),
+        },
+      ]);
+      setTool("move");
+    } catch (e) {
+      notify(`캡처하지 못했습니다: ${e.message}`, true);
+    } finally {
+      operation.current = false;
+      setBusy("");
+    }
+  };
   useEffect(() => {
     if (!slide || tool !== "laser") {
       setLaserPoint(null);
@@ -592,6 +692,22 @@ export default function App({ pdfjs, createOcrWorker }) {
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
+    if (tool === "capture") {
+      const bounds = e.currentTarget.getBoundingClientRect();
+      const origin = {
+        x: Math.max(0, Math.min(1, (e.clientX - bounds.left) / bounds.width)),
+        y: Math.max(0, Math.min(1, (e.clientY - bounds.top) / bounds.height)),
+      };
+      pointer.current = {
+        capture: true,
+        origin,
+        bounds,
+        page,
+        rect: { ...origin, width: 0, height: 0 },
+      };
+      setCaptureRect(pointer.current.rect);
+      return;
+    }
     const p = point(e);
     if (tool === "move") {
       pointer.current = {
@@ -669,6 +785,24 @@ export default function App({ pdfjs, createOcrWorker }) {
   const pointerMove = (e) => {
     const current = pointer.current;
     if (!current) return;
+    if (current.capture) {
+      const x = Math.max(
+        0,
+        Math.min(1, (e.clientX - current.bounds.left) / current.bounds.width),
+      );
+      const y = Math.max(
+        0,
+        Math.min(1, (e.clientY - current.bounds.top) / current.bounds.height),
+      );
+      current.rect = {
+        x: Math.min(x, current.origin.x),
+        y: Math.min(y, current.origin.y),
+        width: Math.abs(x - current.origin.x),
+        height: Math.abs(y - current.origin.y),
+      };
+      setCaptureRect(current.rect);
+      return;
+    }
     if (current.pan) {
       stage.current.scrollLeft = current.left - (e.clientX - current.x);
       stage.current.scrollTop = current.top - (e.clientY - current.y);
@@ -720,6 +854,11 @@ export default function App({ pdfjs, createOcrWorker }) {
     const current = pointer.current;
     pointer.current = null;
     setDraft(null);
+    setCaptureRect(null);
+    if (current?.capture) {
+      finishCapture(current);
+      return;
+    }
     if (!current || current.pan) return;
     if (current.moveAnnotation) {
       if (current.updated)
@@ -1313,6 +1452,12 @@ export default function App({ pdfjs, createOcrWorker }) {
                       width={displayWidth}
                       tool={tool}
                       draft={draft}
+                      captureRect={captureRect}
+                      onPointerCancel={() => {
+                        pointer.current = null;
+                        setCaptureRect(null);
+                        setDraft(null);
+                      }}
                       onPointerDown={pointerDown}
                       onPointerMove={pointerMove}
                       onPointerUp={pointerUp}
@@ -1367,15 +1512,17 @@ export default function App({ pdfjs, createOcrWorker }) {
           {!presenting && (
             <div className="slide-options">
               <span>
-                {tool === "laser"
-                  ? "마우스를 움직여 가리키세요. L 키로 레이저 포인터를 켜고 끌 수 있어요."
-                  : tool === "move"
-                    ? "드래그로 화면을 이동하세요. 방향키로 페이지를 넘길 수 있어요."
-                    : tool === "select"
-                      ? "추가한 필기·텍스트·서명을 드래그해 이동하세요."
-                      : tool === "erase"
-                        ? "지울 필기나 텍스트를 클릭하세요."
-                        : "문서 위에 바로 필기하세요."}
+                {tool === "capture"
+                  ? "캡처할 영역을 드래그하세요. 캡처는 페이지를 넘겨도 화면 위에 유지됩니다."
+                  : tool === "laser"
+                    ? "마우스를 움직여 가리키세요. L 키로 레이저 포인터를 켜고 끌 수 있어요."
+                    : tool === "move"
+                      ? "드래그로 화면을 이동하세요. 방향키로 페이지를 넘길 수 있어요."
+                      : tool === "select"
+                        ? "추가한 필기·텍스트·서명을 드래그해 이동하세요."
+                        : tool === "erase"
+                          ? "지울 필기나 텍스트를 클릭하세요."
+                          : "문서 위에 바로 필기하세요."}
               </span>
               {["pen", "highlight", "text"].includes(tool) && (
                 <div className="drawing-options">
@@ -1509,11 +1656,39 @@ export default function App({ pdfjs, createOcrWorker }) {
                 맞춤
               </ToolButton>
               {!presenting && (
+                <>
+                  <ToolButton
+                    icon={CornersOut}
+                    active={tool === "capture"}
+                    disabled={!!busy}
+                    onClick={() => {
+                      setTool((old) =>
+                        old === "capture" ? "move" : "capture",
+                      );
+                      setDraft(null);
+                      setCaptureRect(null);
+                      pointer.current = null;
+                    }}
+                  >
+                    캡처 모드
+                  </ToolButton>
+                </>
+              )}
+              {!presenting && (
                 <ToolButton
                   icon={Presentation}
                   onClick={() => startSlide("present")}
                 >
                   프레젠테이션
+                </ToolButton>
+              )}
+              {!presenting && (
+                <ToolButton
+                  icon={FilePlus}
+                  disabled={!!busy}
+                  onClick={addBlankPage}
+                >
+                  빈 페이지 추가
                 </ToolButton>
               )}
               <ToolButton
@@ -1583,6 +1758,21 @@ export default function App({ pdfjs, createOcrWorker }) {
         </footer>
       )}
 
+      {slide &&
+        captures.map((capture) => (
+          <PinnedCapture
+            key={capture.id}
+            capture={capture}
+            onChange={(next) =>
+              setCaptures((old) =>
+                old.map((c) => (c.id === next.id ? next : c)),
+              )
+            }
+            onClose={() =>
+              setCaptures((old) => old.filter((c) => c.id !== capture.id))
+            }
+          />
+        ))}
       {slide && tool === "laser" && laserPoint && (
         <svg className="laser-overlay" aria-hidden="true">
           <polyline
@@ -1648,6 +1838,7 @@ export default function App({ pdfjs, createOcrWorker }) {
               new: "새 작업 시작",
               clear: "이 페이지의 편집 지우기",
               shortcuts: "슬라이드 단축키",
+              "slide-exit": "수업 작업을 저장할까요?",
               copy: "텍스트 복사",
             }[modal.type] || modal.title
           }
@@ -1656,6 +1847,40 @@ export default function App({ pdfjs, createOcrWorker }) {
           wide={modal.type === "signature" || modal.type === "ocr-review"}
           columns={modal.type === "redact"}
         >
+          {modal.type === "slide-exit" && (
+            <>
+              <p className="modal-description">
+                추가한 빈 페이지와 이번 슬라이드 작업의 필기를 원본 페이지와
+                함께 새 PDF로 저장할 수 있습니다. 캡처 창은 저장되지 않습니다.
+              </p>
+              <p className="modal-footnote">
+                저장하지 않으면 슬라이드 시작 전 상태로 돌아갑니다. 원본 파일과
+                시작 전에 편집한 내용은 유지됩니다.
+              </p>
+              <div className="modal-footer">
+                <ToolButton disabled={!!busy} onClick={closeModal}>
+                  취소
+                </ToolButton>
+                <ToolButton disabled={!!busy} onClick={discardSlide}>
+                  저장하지 않고 종료
+                </ToolButton>
+                <ToolButton
+                  className="primary"
+                  icon={FloppyDisk}
+                  disabled={!!busy}
+                  onClick={async () => {
+                    const name = (
+                      slideSession.current?.pages[0]?.source.name || "문서.pdf"
+                    ).replace(/\.pdf$/i, "");
+                    if (await save(null, pagesRef.current, `${name}_수업.pdf`))
+                      finishSlide();
+                  }}
+                >
+                  저장하고 종료
+                </ToolButton>
+              </div>
+            </>
+          )}
           {modal.type === "compress" && (
             <>
               <p className="modal-description">

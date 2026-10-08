@@ -151,7 +151,11 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     });
   }
   async function click(text) {
-    const buttons = [...document.querySelectorAll("button")];
+    const buttons = [
+      ...(
+        document.querySelector('[role="dialog"]') || document
+      ).querySelectorAll("button"),
+    ];
     const button = buttons.find(
       (b) =>
         b.textContent.trim() === text || b.textContent.trim().startsWith(text),
@@ -710,6 +714,13 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       }
     });
     await click("종료");
+    assert.match(
+      document.querySelector("[role=dialog] h2").textContent,
+      /저장할까요/,
+    );
+    await click("저장하고 종료");
+    for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
+      await settle();
     assert.equal(document.querySelector(".presentation-mode"), null);
     await click("저장");
     for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
@@ -736,6 +747,150 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       "slide drawing is retained in the downloaded PDF",
     );
     await written.document.destroy();
+    const baselineThumbnails = document.querySelectorAll(".thumbnail").length;
+    const baselineAnnotations = document.querySelectorAll(
+      ".annotation-indicator",
+    ).length;
+    await click("슬라이드 재생");
+    await click("캡처 모드");
+    const captureCanvas = document.querySelector(
+      ".document-stage .annotation-canvas",
+    );
+    const captureBounds = captureCanvas.getBoundingClientRect();
+    await act(async () => {
+      for (const [type, x, y] of [
+        ["pointerdown", 0.15, 0.45],
+        ["pointermove", 0.65, 0.7],
+        ["pointerup", 0.65, 0.7],
+      ]) {
+        const e = new window.MouseEvent(type, {
+          bubbles: true,
+          clientX: captureBounds.width * x,
+          clientY: captureBounds.height * y,
+          button: 0,
+        });
+        Object.defineProperty(e, "pointerId", { value: 3 });
+        captureCanvas.dispatchEvent(e);
+      }
+    });
+    for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
+      await settle();
+    const pinned = document.querySelector(".pinned-capture");
+    assert.ok(pinned);
+    assert.match(pinned.querySelector("img").src, /^data:image\/png/);
+    const captureWidth = parseFloat(pinned.style.width);
+    await act(async () =>
+      pinned.querySelector('[aria-label="캡처 확대"]').click(),
+    );
+    assert.ok(parseFloat(pinned.style.width) > captureWidth);
+    await act(async () =>
+      pinned.querySelector('[aria-label="캡처 축소"]').click(),
+    );
+    assert.ok(Math.abs(parseFloat(pinned.style.width) - captureWidth) < 0.01);
+    const captureLeft = parseFloat(pinned.style.left);
+    await act(async () =>
+      pinned.querySelector(".capture-handle").dispatchEvent(
+        new window.KeyboardEvent("keydown", {
+          key: "ArrowRight",
+          bubbles: true,
+        }),
+      ),
+    );
+    assert.equal(parseFloat(pinned.style.left), captureLeft + 10);
+    const captureHandle = pinned.querySelector(".capture-handle");
+    await act(async () => {
+      for (const [type, x, y] of [
+        ["pointerdown", 100, 100],
+        ["pointermove", 130, 120],
+        ["pointerup", 130, 120],
+      ]) {
+        const event = new window.MouseEvent(type, {
+          bubbles: true,
+          clientX: x,
+          clientY: y,
+          button: 0,
+        });
+        Object.defineProperty(event, "pointerId", { value: 4 });
+        captureHandle.dispatchEvent(event);
+      }
+    });
+    assert.equal(
+      parseFloat(pinned.style.left),
+      captureLeft + 40,
+      "capture can be dragged",
+    );
+    await click("다음");
+    assert.ok(
+      document.querySelector(".pinned-capture"),
+      "capture remains pinned across pages",
+    );
+    const pageBeforeBlank =
+      document.querySelector(".slide-page-number").textContent;
+    await click("빈 페이지 추가");
+    for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
+      await settle();
+    assert.equal(
+      document.querySelector(".slide-page-number").textContent.trim(),
+      `${parseInt(pageBeforeBlank) + 1} / ${baselineThumbnails + 1}`,
+    );
+    assert.ok(document.querySelector(".tool-pen"));
+    await click("종료");
+    await click("취소");
+    assert.ok(document.querySelector(".presentation-mode"));
+    await act(async () =>
+      document.dispatchEvent(new window.Event("fullscreenchange")),
+    );
+    assert.match(
+      document.querySelector("[role=dialog] h2").textContent,
+      /저장할까요/,
+    );
+    await click("저장하지 않고 종료");
+    assert.equal(
+      document.querySelectorAll(".thumbnail").length,
+      baselineThumbnails,
+    );
+    assert.equal(
+      document.querySelectorAll(".annotation-indicator").length,
+      baselineAnnotations,
+    );
+    assert.equal(document.querySelector(".pinned-capture"), null);
+    await click("슬라이드 재생");
+    await click("빈 페이지 추가");
+    for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
+      await settle();
+    await click("종료");
+    const createDownloadUrl = URL.createObjectURL;
+    URL.createObjectURL = () => {
+      throw new Error("download unavailable");
+    };
+    await click("저장하고 종료");
+    for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
+      await settle();
+    assert.ok(
+      document.querySelector(".presentation-mode"),
+      "failed download keeps session open",
+    );
+    assert.ok(
+      document.querySelector('[role="dialog"]'),
+      "failed download retains save choices",
+    );
+    URL.createObjectURL = createDownloadUrl;
+    await click("저장하고 종료");
+    for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
+      await settle();
+    assert.equal(document.querySelector(".presentation-mode"), null);
+    const practice = await loadSource(
+      await downloaded.arrayBuffer(),
+      "practice.pdf",
+      renderer,
+    );
+    const practicePages = await sourcePages(practice);
+    assert.equal(practicePages.length, baselineThumbnails + 1);
+    assert.equal(
+      document.querySelectorAll(".thumbnail").length,
+      baselineThumbnails + 1,
+    );
+    await practice.document.destroy();
     await click("새 작업");
     await click("새 작업 시작");
     assert.equal(document.querySelectorAll(".thumbnail").length, 0);

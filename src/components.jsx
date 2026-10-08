@@ -102,8 +102,10 @@ export function PageCanvas({
   onPointerDown,
   onPointerMove,
   onPointerUp,
+  onPointerCancel = onPointerUp,
   tool,
   thumbnail = false,
+  captureRect,
 }) {
   const base = useRef(null);
   const overlay = useRef(null);
@@ -210,8 +212,19 @@ export function PageCanvas({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        onPointerCancel={onPointerCancel}
       />
+      {captureRect && (
+        <div
+          className="capture-selection"
+          style={{
+            left: `${captureRect.x * 100}%`,
+            top: `${captureRect.y * 100}%`,
+            width: `${captureRect.width * 100}%`,
+            height: `${captureRect.height * 100}%`,
+          }}
+        />
+      )}
       {!dimensions && !error && (
         <div className="page-loading">
           <span className="spinner" />

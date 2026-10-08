@@ -1,8 +1,10 @@
+import { createBlankPdf, captureRegion } from "../src/slide-tools.js";
 import { createTestPdf } from "./pdf-fixture.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createCanvas,
+  loadImage,
   DOMMatrix,
   ImageData,
   Path2D,
@@ -318,4 +320,84 @@ test("new document extracts and merges source pages independently with duplicate
     b.source.document.destroy(),
     out.document.destroy(),
   ]);
+});
+
+test("blank practice pages preserve dimensions and survive PDF export with writing", async () => {
+  const source = await loadSource(
+    await createBlankPdf(720, 405),
+    "blank.pdf",
+    renderer,
+  );
+  const [page] = await sourcePages(source);
+  assert.equal(page.width, 720);
+  assert.equal(page.height, 405);
+  assert.equal(await extractText([page]), "");
+  page.annotations.push({
+    id: "practice-pen",
+    type: "pen",
+    color: "#087f5b",
+    size: 0.02,
+    points: [
+      { x: 0.1, y: 0.5 },
+      { x: 0.8, y: 0.5 },
+    ],
+  });
+  const result = await loadSource(
+    await exportPdf([page], { canvasFactory: () => createCanvas(1, 1) }),
+    "practice.pdf",
+    renderer,
+  );
+  const [saved] = await sourcePages(result);
+  const canvas = await renderPage(saved, 1, () => createCanvas(1, 1));
+  const pixel = canvas.getContext("2d").getImageData(360, 202, 1, 1).data;
+  assert.ok(pixel[1] > pixel[0] + 40);
+  await Promise.all([source.document.destroy(), result.document.destroy()]);
+});
+
+test("region captures include annotations in visible rotated coordinates", async () => {
+  const source = await loadSource(
+    await createBlankPdf(200, 400),
+    "capture.pdf",
+    renderer,
+  );
+  const [page] = await sourcePages(source);
+  page.rotation = 90;
+  page.annotations.push({
+    id: "mask",
+    type: "redact",
+    color: "#ff0000",
+    x: 0.1,
+    y: 0.1,
+    width: 0.4,
+    height: 0.3,
+  });
+  const captured = await captureRegion(
+    page,
+    { x: 0, y: 0, width: 1, height: 1 },
+    () => createCanvas(1, 1),
+  );
+  assert.equal(captured.aspectRatio, 2);
+  const image = await loadImage(captured.dataUrl);
+  const canvas = createCanvas(800, 400);
+  canvas.getContext("2d").drawImage(image, 0, 0);
+  const data = canvas.getContext("2d").getImageData(0, 0, 800, 400).data;
+  let red = 0;
+  for (let i = 0; i < data.length; i += 4)
+    if (data[i] > 200 && data[i + 1] < 40) red++;
+  assert.ok(red > 1000, "capture retains visible annotation");
+  const crop = await captureRegion(
+    page,
+    { x: 0.25, y: 0.25, width: 0.5, height: 0.5 },
+    () => createCanvas(1, 1),
+  );
+  const cropped = await loadImage(crop.dataUrl);
+  assert.equal(cropped.width, 400);
+  assert.equal(cropped.height, 200);
+  await assert.rejects(
+    captureRegion(page, { x: 0, y: 0, width: 0, height: 0 }, () =>
+      createCanvas(1, 1),
+    ),
+    /영역/,
+  );
+  await source.document.destroy();
 });
