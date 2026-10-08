@@ -1638,18 +1638,19 @@ export default function App({ pdfjs, createOcrWorker }) {
                       className="redaction-scope region-targets"
                       disabled={!redactionMethods.region}
                     >
-                      <legend>
-                        {regionMode === "manual"
-                          ? "수작업할 페이지"
-                          : "같은 위치를 반복 적용할 페이지"}
-                      </legend>
+                      <legend>같은 위치를 반복 적용할 페이지</legend>
                       {[
                         [
                           "selected",
-                          `목록에서 선택한 페이지 (${selected.size}쪽)`,
+                          `선택한 페이지 (현재 ${selected.size}쪽 선택)`,
+                          "아래에서 여러 페이지를 선택하면 같은 위치를 선택한 페이지마다 가립니다.",
                         ],
-                        ["all", `전체 페이지 (${pages.length}쪽)`],
-                      ].map(([value, title]) => (
+                        [
+                          "all",
+                          `전체 페이지 (${pages.length}쪽)`,
+                          "문서의 모든 페이지에서 같은 위치를 가립니다.",
+                        ],
+                      ].map(([value, title, description]) => (
                         <label
                           key={value}
                           className={`compression-option ${regionScope === value ? "selected" : ""}`}
@@ -1659,14 +1660,68 @@ export default function App({ pdfjs, createOcrWorker }) {
                             name="region-scope"
                             value={value}
                             checked={regionScope === value}
-                            disabled={value === "selected" && !selected.size}
                             onChange={() => setRegionScope(value)}
                           />
                           <span>
                             <strong>{title}</strong>
+                            <small>{description}</small>
                           </span>
                         </label>
                       ))}
+                      {regionScope === "selected" && (
+                        <div className="repeat-page-picker">
+                          <div className="repeat-page-actions">
+                            <button
+                              type="button"
+                              className="text-button"
+                              onClick={() =>
+                                setSelected(new Set(pages.map((p) => p.id)))
+                              }
+                            >
+                              전체 선택
+                            </button>
+                            <button
+                              type="button"
+                              className="text-button"
+                              onClick={() => setSelected(new Set())}
+                            >
+                              선택 해제
+                            </button>
+                          </div>
+                          <div
+                            className="repeat-page-list"
+                            role="group"
+                            aria-label="반복 가리기를 적용할 페이지 선택"
+                          >
+                            {pages.map((p, i) => (
+                              <label
+                                key={p.id}
+                                title={`${p.source.name} · 원본 ${p.index + 1}쪽`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selected.has(p.id)}
+                                  aria-label={`반복 적용 ${i + 1}페이지 선택`}
+                                  onChange={() =>
+                                    setSelected((old) => {
+                                      const next = new Set(old);
+                                      next.has(p.id)
+                                        ? next.delete(p.id)
+                                        : next.add(p.id);
+                                      return next;
+                                    })
+                                  }
+                                />
+                                {i + 1}쪽
+                              </label>
+                            ))}
+                          </div>
+                          <p className="modal-footnote">
+                            표시된 쪽 수는 현재 선택한 페이지 수입니다. 위
+                            미리보기 목록의 선택과 함께 바뀝니다.
+                          </p>
+                        </div>
+                      )}
                     </fieldset>
                   )}
                   <p className="modal-footnote">

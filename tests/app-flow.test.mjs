@@ -511,6 +511,16 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
         .querySelector('input[name="region-scope"][value="selected"]')
         .click(),
     );
+    const repeatPages = document.querySelectorAll(".repeat-page-list input");
+    assert.equal(repeatPages.length, 6);
+    assert.equal([...repeatPages].filter((input) => input.checked).length, 2);
+    await act(async () => repeatPages[2].click());
+    assert.equal(document.querySelectorAll(".page-checkbox:checked").length, 3);
+    assert.match(
+      document.querySelector(".region-targets").textContent,
+      /현재 3쪽 선택/,
+    );
+    await act(async () => repeatPages[2].click());
     await click("영역 지정");
     const drawing = document.querySelector(
       ".document-stage .annotation-canvas",
