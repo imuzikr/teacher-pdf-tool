@@ -1,4 +1,10 @@
-import { shapeOptions, shapePoints, hitShape } from "../src/shapes.js";
+import {
+  shapeOptions,
+  shapePoints,
+  hitShape,
+  shapeBounds,
+  resizeShape,
+} from "../src/shapes.js";
 import { createBlankPdf, captureRegion } from "../src/slide-tools.js";
 import { createTestPdf } from "./pdf-fixture.mjs";
 import test from "node:test";
@@ -466,4 +472,59 @@ test("all eight shapes survive PDF export and preserve regular geometry", async 
     }
     await Promise.all([source.document.destroy(), result.document.destroy()]);
   }
+});
+
+test("shape resizing uses visible corners on every page rotation and survives saving", async () => {
+  const source = await loadSource(
+    await createBlankPdf(400, 600),
+    "resize.pdf",
+    renderer,
+  );
+  for (const rotation of [0, 90, 180, 270]) {
+    const [page] = await sourcePages(source);
+    page.rotation = rotation;
+    const points = shapePoints(
+      "rectangle",
+      { x: 0.2, y: 0.2 },
+      { x: 0.8, y: 0.8 },
+      page.width / page.height,
+    );
+    const before = shapeBounds(points, rotation),
+      after = { x: 0.3, y: 0.3, width: 0.4, height: 0.4 };
+    const resized = resizeShape(points, before, after, rotation);
+    const bounds = shapeBounds(resized, rotation);
+    for (const key of ["x", "y", "width", "height"])
+      assert.ok(Math.abs(bounds[key] - after[key]) < 1e-6);
+    assert.ok(resized[0].move, "separate path metadata survives transforms");
+    page.annotations = [
+      {
+        id: "resized",
+        type: "shape",
+        color: "#087f5b",
+        size: 0.01,
+        points: resized,
+      },
+    ];
+    const out = await loadSource(
+      await exportPdf([page], { canvasFactory: () => createCanvas(1, 1) }),
+      "resized.pdf",
+      renderer,
+    );
+    const [saved] = await sourcePages(out);
+    const canvas = await renderPage(saved, 1, () => createCanvas(1, 1));
+    const pixel = canvas
+      .getContext("2d")
+      .getImageData(
+        Math.round(canvas.width * 0.5),
+        Math.round(canvas.height * 0.3),
+        1,
+        1,
+      ).data;
+    assert.ok(
+      pixel[1] > pixel[0] + 40,
+      `resized border is saved at the visible location (${rotation})`,
+    );
+    await out.document.destroy();
+  }
+  await source.document.destroy();
 });

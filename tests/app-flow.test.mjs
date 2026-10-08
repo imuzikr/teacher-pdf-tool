@@ -172,7 +172,9 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     ];
     const button = buttons.find(
       (b) =>
-        b.textContent.trim() === text || b.textContent.trim().startsWith(text),
+        b.textContent.trim() === text ||
+        b.textContent.trim().startsWith(text) ||
+        b.getAttribute("aria-label") === text,
     );
     assert.ok(button, `button exists: ${text}`);
     assert.equal(button.disabled, false, `button enabled: ${text}`);
@@ -717,6 +719,32 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     await click("슬라이드 재생");
     await click("펜");
     assert.ok(document.querySelector(".tool-pen"));
+    assert.equal(
+      document.querySelectorAll(".color-palette .color-swatch").length,
+      8,
+    );
+    await click("붉은색 색상");
+    assert.equal(
+      document
+        .querySelector('[aria-label="붉은색 색상"]')
+        .getAttribute("aria-pressed"),
+      "true",
+    );
+    await click("형광펜");
+    assert.equal(
+      document.querySelectorAll(".color-palette .color-swatch").length,
+      6,
+    );
+    await click("펜");
+    assert.equal(
+      document
+        .querySelector('[aria-label="붉은색 색상"]')
+        .getAttribute("aria-pressed"),
+      "true",
+      "pen color is remembered independently of highlighter",
+    );
+    await click("초록색 색상");
+
     const slideCanvas = document.querySelector(
       ".document-stage .annotation-canvas",
     );
@@ -738,9 +766,11 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       }
     });
     await click("도형");
-    const shapeSelect = document.querySelector('[aria-label="도형 종류"]');
+    const shapeMenu = document.querySelector(
+      '[role="menu"][aria-label="도형 종류"]',
+    );
     assert.deepEqual(
-      [...shapeSelect.options].map((o) => o.textContent),
+      [...shapeMenu.querySelectorAll("button")].map((o) => o.textContent),
       [
         "직선",
         "원",
@@ -752,10 +782,8 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
         "3차원 좌표",
       ],
     );
-    await act(async () => {
-      shapeSelect.value = "rectangle";
-      shapeSelect.dispatchEvent(new window.Event("change", { bubbles: true }));
-    });
+    await click("사각형");
+    assert.equal(document.querySelector('[role="menu"]'), null);
     await act(async () => {
       for (const [name, x, y] of [
         ["pointerdown", 0.6, 0.2],
@@ -772,6 +800,52 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
         slideCanvas.dispatchEvent(e);
       }
     });
+    await settle();
+    await click("선택");
+    await act(async () => {
+      for (const [type, x, y] of [
+        ["pointerdown", 0.725, 0.2],
+        ["pointerup", 0.725, 0.2],
+      ]) {
+        const e = new window.MouseEvent(type, {
+          bubbles: true,
+          clientX: x * slideRect.width,
+          clientY: y * slideRect.height,
+          button: 0,
+        });
+        Object.defineProperty(e, "pointerId", { value: 23 });
+        slideCanvas.dispatchEvent(e);
+      }
+    });
+    assert.equal(document.querySelectorAll(".shape-resize").length, 4);
+    const resizeHandle = document.querySelector(
+      '[aria-label="도형 크기 조절 se"]',
+    );
+    await act(async () => {
+      for (const [type, x, y] of [
+        ["pointerdown", 0.85, 0.4],
+        ["pointermove", 0.95, 0.55],
+        ["pointerup", 0.95, 0.55],
+      ]) {
+        const e = new window.MouseEvent(type, {
+          bubbles: true,
+          clientX: x * slideRect.width,
+          clientY: y * slideRect.height,
+          button: 0,
+        });
+        Object.defineProperty(e, "pointerId", { value: 24 });
+        resizeHandle.dispatchEvent(e);
+      }
+    });
+    await settle();
+    const boxAfterResize = document.querySelector(".shape-selection");
+    assert.ok(
+      parseFloat(boxAfterResize.style.width) > 30,
+      "corner drag enlarges the selected shape",
+    );
+    await click("취소");
+    await click("도형");
+    await click("사각형");
     await settle();
     const withShape = slideCanvas.toDataURL();
     await click("지우개");
@@ -1022,11 +1096,7 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       "ink stays aligned when capture resizes",
     );
     await click("도형");
-    await act(async () => {
-      const select = document.querySelector('[aria-label="도형 종류"]');
-      select.value = "axes3d";
-      select.dispatchEvent(new window.Event("change", { bubbles: true }));
-    });
+    await click("3차원 좌표");
     await act(async () => {
       for (const [type, x, y] of [
         ["pointerdown", 0.1, 0.1],
@@ -1140,6 +1210,35 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       );
     }
 
+    await click("이동");
+    const spreadStage = document.querySelector(".document-stage");
+    spreadStage.scrollTop = 160;
+    spreadStage.scrollLeft = 100;
+    const referenceCanvas = document.querySelector(
+      '[aria-label="왼쪽 참고 페이지"] .annotation-canvas',
+    );
+    await act(async () => {
+      for (const [type, x, y] of [
+        ["pointerdown", 100, 100],
+        ["pointermove", 120, 140],
+        ["pointerup", 120, 140],
+      ]) {
+        const e = new window.MouseEvent(type, {
+          bubbles: true,
+          clientX: x,
+          clientY: y,
+          button: 0,
+        });
+        Object.defineProperty(e, "pointerId", { value: 25 });
+        referenceCanvas.dispatchEvent(e);
+      }
+    });
+    assert.equal(
+      spreadStage.scrollTop,
+      120,
+      "dragging reference page pans the spread vertically",
+    );
+    assert.equal(spreadStage.scrollLeft, 80);
     await click("캡처 모드");
     const leftCanvas = document.querySelector(
       '[aria-label="왼쪽 참고 페이지"] .annotation-canvas',

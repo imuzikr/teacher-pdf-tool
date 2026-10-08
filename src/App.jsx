@@ -37,7 +37,7 @@ import {
 } from "@phosphor-icons/react";
 import { ToolButton, Modal, PageCanvas, SignaturePad } from "./components.jsx";
 import PdfAssembler from "./PdfAssembler.jsx";
-import { shapeOptions, shapePoints, hitShape } from "./shapes.js";
+import { shapeOptions, shapePoints, hitShape, resizeShape } from "./shapes.js";
 import PinnedCapture from "./PinnedCapture.jsx";
 import { createBlankPdf, captureRegion } from "./slide-tools.js";
 import {
@@ -58,6 +58,24 @@ import {
   rotatedSize,
 } from "./pdf-engine.js";
 
+const penPalette = [
+  ["검정", "#111111"],
+  ["붉은색", "#e03131"],
+  ["파란색", "#1c5fd4"],
+  ["보라색", "#8e44ad"],
+  ["주황색", "#f07818"],
+  ["노란색", "#f5cc28"],
+  ["흰색", "#ffffff"],
+  ["초록색", "#087f5b"],
+];
+const highlightPalette = [
+  ["노랑", "#ffe600"],
+  ["연두", "#a3e635"],
+  ["분홍", "#ff80b5"],
+  ["하늘색", "#67d5f5"],
+  ["주황", "#ffb347"],
+  ["보라", "#c4a1ff"],
+];
 const compressionPresets = [
   {
     id: 200,
@@ -132,6 +150,31 @@ export default function App({ pdfjs, createOcrWorker }) {
   const [laserTrail, setLaserTrail] = useState([]);
   const [tool, setTool] = useState("move");
   const [shapeKind, setShapeKind] = useState("line");
+  const [shapeMenu, setShapeMenu] = useState(false);
+  const [selectedShapeId, setSelectedShapeId] = useState(null);
+  const colorMemory = useRef({
+    pen: "#087f5b",
+    highlight: "#ffe600",
+    shape: "#087f5b",
+    text: "#087f5b",
+  });
+  const chooseTool = (value) => {
+    setTool(value);
+    setShapeMenu(value === "shape");
+    if (colorMemory.current[value]) setColor(colorMemory.current[value]);
+  };
+  useEffect(() => {
+    setSelectedShapeId(null);
+    if (tool !== "shape") setShapeMenu(false);
+  }, [activeId, tool]);
+  useEffect(() => {
+    if (!shapeMenu) return;
+    const close = (e) => {
+      if (!e.target.closest(".shape-picker")) setShapeMenu(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [shapeMenu]);
   const [color, setColor] = useState("#087f5b");
   const [size, setSize] = useState(0.004);
   const [fontSize, setFontSize] = useState(0.025);
@@ -572,7 +615,7 @@ export default function App({ pdfjs, createOcrWorker }) {
       setPracticePairs((old) => ({ ...old, [blank.id]: page.id }));
       setActiveId(blank.id);
       setSelected(new Set([blank.id]));
-      setTool("pen");
+      chooseTool("pen");
       setPresenting(false);
       setDraft(null);
       pointer.current = null;
@@ -683,7 +726,8 @@ export default function App({ pdfjs, createOcrWorker }) {
     stage.current?.scrollTo({ top: 0, left: 0 });
   };
   const point = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
+    const rect =
+      pointer.current?.resizeBounds || e.currentTarget.getBoundingClientRect();
     return toBasePoint(
       Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
       Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
@@ -708,6 +752,33 @@ export default function App({ pdfjs, createOcrWorker }) {
     setCaptureRect({ ...pointer.current.rect, pageId: reference.id });
     return;
   };
+  const beginPan = (e) => {
+    if (operation.current || e.button !== 0) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    pointer.current = {
+      pan: true,
+      x: e.clientX,
+      y: e.clientY,
+      left: stage.current.scrollLeft,
+      top: stage.current.scrollTop,
+    };
+  };
+  const beginShapeResize = (e, corner, annotation, box) => {
+    if (operation.current || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const canvas = e.currentTarget
+      .closest(".page-canvas")
+      .querySelector(".annotation-canvas");
+    pointer.current = {
+      moveAnnotation: annotation,
+      resizeCorner: corner,
+      box,
+      resizeBounds: canvas.getBoundingClientRect(),
+    };
+  };
   const pointerDown = (e) => {
     if (operation.current || !page || e.button !== 0 || tool === "laser")
       return;
@@ -729,13 +800,7 @@ export default function App({ pdfjs, createOcrWorker }) {
     }
     const p = point(e);
     if (tool === "move") {
-      pointer.current = {
-        pan: true,
-        x: e.clientX,
-        y: e.clientY,
-        left: stage.current.scrollLeft,
-        top: stage.current.scrollTop,
-      };
+      beginPan(e);
       return;
     }
     if (tool === "signature" && signature) {
@@ -774,6 +839,7 @@ export default function App({ pdfjs, createOcrWorker }) {
       return;
     }
     if (tool === "select") {
+      setSelectedShapeId(hit?.type === "shape" ? hit.id : null);
       if (hit) {
         pointer.current = { moveAnnotation: hit, origin: p };
         setDraft(hit);
@@ -826,6 +892,45 @@ export default function App({ pdfjs, createOcrWorker }) {
     if (current.pan) {
       stage.current.scrollLeft = current.left - (e.clientX - current.x);
       stage.current.scrollTop = current.top - (e.clientY - current.y);
+      return;
+    }
+    if (current.resizeCorner) {
+      const bounds = current.resizeBounds,
+        before = current.box;
+      const x = Math.max(
+        0,
+        Math.min(1, (e.clientX - bounds.left) / bounds.width),
+      );
+      const y = Math.max(
+        0,
+        Math.min(1, (e.clientY - bounds.top) / bounds.height),
+      );
+      const west = current.resizeCorner.includes("w"),
+        north = current.resizeCorner.includes("n");
+      const fixedX = west ? before.x + before.width : before.x;
+      const fixedY = north ? before.y + before.height : before.y;
+      const edgeX = west
+        ? Math.min(x, fixedX - 0.01)
+        : Math.max(x, fixedX + 0.01);
+      const edgeY = north
+        ? Math.min(y, fixedY - 0.01)
+        : Math.max(y, fixedY + 0.01);
+      const after = {
+        x: Math.min(edgeX, fixedX),
+        y: Math.min(edgeY, fixedY),
+        width: Math.abs(edgeX - fixedX),
+        height: Math.abs(edgeY - fixedY),
+      };
+      current.updated = {
+        ...current.moveAnnotation,
+        points: resizeShape(
+          current.moveAnnotation.points,
+          before,
+          after,
+          page.rotation,
+        ),
+      };
+      setDraft(current.updated);
       return;
     }
     const p = point(e);
@@ -973,7 +1078,7 @@ export default function App({ pdfjs, createOcrWorker }) {
         e: "erase",
       };
       if (keys[e.key.toLowerCase()] && !e.ctrlKey && !e.metaKey)
-        setTool(keys[e.key.toLowerCase()]);
+        chooseTool(keys[e.key.toLowerCase()]);
     };
     document.addEventListener("keydown", key);
     return () => document.removeEventListener("keydown", key);
@@ -1533,7 +1638,9 @@ export default function App({ pdfjs, createOcrWorker }) {
                             onPointerDown={
                               tool === "capture"
                                 ? (e) => beginCapture(e, practiceReference)
-                                : undefined
+                                : tool === "move"
+                                  ? beginPan
+                                  : undefined
                             }
                             onPointerMove={pointerMove}
                             onPointerUp={pointerUp}
@@ -1556,6 +1663,16 @@ export default function App({ pdfjs, createOcrWorker }) {
                             width={displayWidth}
                             tool={tool}
                             draft={draft}
+                            selectedShape={
+                              tool === "select"
+                                ? draft?.id === selectedShapeId
+                                  ? draft
+                                  : page.annotations.find(
+                                      (a) => a.id === selectedShapeId,
+                                    )
+                                : null
+                            }
+                            onShapeResize={beginShapeResize}
                             captureRect={
                               captureRect?.pageId === page.id
                                 ? captureRect
@@ -1578,6 +1695,16 @@ export default function App({ pdfjs, createOcrWorker }) {
                         width={displayWidth}
                         tool={tool}
                         draft={draft}
+                        selectedShape={
+                          tool === "select"
+                            ? draft?.id === selectedShapeId
+                              ? draft
+                              : page.annotations.find(
+                                  (a) => a.id === selectedShapeId,
+                                )
+                            : null
+                        }
+                        onShapeResize={beginShapeResize}
                         captureRect={
                           captureRect?.pageId === page.id ? captureRect : null
                         }
@@ -1657,31 +1784,32 @@ export default function App({ pdfjs, createOcrWorker }) {
               </span>
               {["pen", "highlight", "text", "shape"].includes(tool) && (
                 <div className="drawing-options">
-                  {tool === "shape" && (
-                    <label>
-                      도형{" "}
-                      <select
-                        aria-label="도형 종류"
-                        value={shapeKind}
-                        onChange={(e) => setShapeKind(e.target.value)}
-                      >
-                        {shapeOptions.map(([value, title]) => (
-                          <option key={value} value={value}>
-                            {title}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  <label>
-                    색상{" "}
-                    <input
-                      type="color"
-                      aria-label="필기 색상"
-                      value={color}
-                      onChange={(e) => setColor(e.target.value)}
-                    />
-                  </label>
+                  <div
+                    className="color-palette"
+                    role="group"
+                    aria-label={
+                      tool === "highlight"
+                        ? "형광펜 색상 팔레트"
+                        : "필기 색상 팔레트"
+                    }
+                  >
+                    {(tool === "highlight" ? highlightPalette : penPalette).map(
+                      ([name, value]) => (
+                        <button
+                          key={value}
+                          className="color-swatch"
+                          style={{ background: value }}
+                          aria-label={`${name} 색상`}
+                          title={name}
+                          aria-pressed={color === value}
+                          onClick={() => {
+                            setColor(value);
+                            colorMemory.current[tool] = value;
+                          }}
+                        />
+                      ),
+                    )}
+                  </div>
                   <label>
                     크기{" "}
                     <input
@@ -1728,20 +1856,58 @@ export default function App({ pdfjs, createOcrWorker }) {
                   [Shapes, "도형", "shape"],
                   [TextT, "텍스트", "text"],
                   [Eraser, "지우개", "erase"],
-                ].map(([Icon, label, value]) => (
-                  <ToolButton
-                    key={value}
-                    icon={Icon}
-                    active={tool === value}
-                    onClick={() => {
-                      setTool(value);
-                      if (value === "highlight") setColor("#f2bc3d");
-                      else if (color === "#f2bc3d") setColor("#087f5b");
-                    }}
-                  >
-                    {label}
-                  </ToolButton>
-                ))}
+                ].map(([Icon, label, value]) =>
+                  value === "shape" ? (
+                    <div className="shape-picker" key={value}>
+                      <ToolButton
+                        icon={Icon}
+                        active={tool === value}
+                        aria-haspopup="menu"
+                        aria-expanded={shapeMenu}
+                        onClick={() => {
+                          chooseTool(value);
+                          setShapeMenu(!shapeMenu);
+                        }}
+                      >
+                        {label}
+                      </ToolButton>
+                      {shapeMenu && (
+                        <div
+                          className="shape-menu"
+                          role="menu"
+                          aria-label="도형 종류"
+                          onKeyDown={(e) => {
+                            e.stopPropagation();
+                            if (e.key === "Escape") setShapeMenu(false);
+                          }}
+                        >
+                          {shapeOptions.map(([kind, title]) => (
+                            <button
+                              key={kind}
+                              role="menuitemradio"
+                              aria-checked={shapeKind === kind}
+                              onClick={() => {
+                                setShapeKind(kind);
+                                setShapeMenu(false);
+                              }}
+                            >
+                              {title}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <ToolButton
+                      key={value}
+                      icon={Icon}
+                      active={tool === value}
+                      onClick={() => chooseTool(value)}
+                    >
+                      {label}
+                    </ToolButton>
+                  ),
+                )}
               </div>
             )}
             <div className="slide-toolgroup">

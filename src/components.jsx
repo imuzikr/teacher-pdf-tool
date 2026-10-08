@@ -6,6 +6,7 @@ import {
   Eraser,
   WarningCircle,
 } from "@phosphor-icons/react";
+import { shapeBounds } from "./shapes.js";
 import { drawAnnotations, normalizeRotation } from "./pdf-engine.js";
 
 export function ToolButton({
@@ -111,6 +112,8 @@ export function PageCanvas({
   tool,
   thumbnail = false,
   captureRect,
+  selectedShape,
+  onShapeResize,
 }) {
   const base = useRef(null);
   const overlay = useRef(null);
@@ -204,6 +207,9 @@ export function PageCanvas({
   const rotated = page.rotation % 180 !== 0;
   const height =
     width * (rotated ? page.width / page.height : page.height / page.width);
+  const selection = selectedShape
+    ? shapeBounds(selectedShape.points, page.rotation)
+    : null;
   return (
     <div
       ref={holder}
@@ -219,6 +225,31 @@ export function PageCanvas({
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
       />
+      {selection && !thumbnail && (
+        <div
+          className="shape-selection"
+          style={{
+            left: `${selection.x * 100}%`,
+            top: `${selection.y * 100}%`,
+            width: `${selection.width * 100}%`,
+            height: `${selection.height * 100}%`,
+          }}
+        >
+          {["nw", "ne", "sw", "se"].map((corner) => (
+            <button
+              key={corner}
+              className={`shape-resize shape-resize-${corner}`}
+              aria-label={`도형 크기 조절 ${corner}`}
+              onPointerDown={(e) =>
+                onShapeResize?.(e, corner, selectedShape, selection)
+              }
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerCancel}
+            />
+          ))}
+        </div>
+      )}
       {captureRect && (
         <div
           className="capture-selection"

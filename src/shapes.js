@@ -70,10 +70,6 @@ export function shapePoints(kind, start, end, aspect = 1) {
     if (kind === "axes2d") {
       arrow(left, cy, right, cy);
       arrow(cx, bottom, cx, top);
-      for (const t of [0.25, 0.75]) {
-        line(left + w * t, cy - head / 3, left + w * t, cy + head / 3);
-        line(cx - head / 3, top + h * t, cx + head / 3, top + h * t);
-      }
       add(right - head * 1.5, cy + head, true, "x");
       add(cx + head, top + head, true, "y");
     } else {
@@ -128,5 +124,35 @@ export function hitShape(points, point, aspect, tolerance) {
       Math.hypot(point.x - a.x - dx * t, (point.y - a.y) / aspect - dy * t) <=
       tolerance
     );
+  });
+}
+
+export function visibleShapePoint(p, rotation = 0) {
+  const r = ((rotation % 360) + 360) % 360;
+  if (r === 90) return { ...p, x: 1 - p.y, y: p.x };
+  if (r === 180) return { ...p, x: 1 - p.x, y: 1 - p.y };
+  if (r === 270) return { ...p, x: p.y, y: 1 - p.x };
+  return { ...p };
+}
+export function shapeBounds(points, rotation = 0) {
+  const visible = points.map((p) => visibleShapePoint(p, rotation));
+  const x = Math.min(...visible.map((p) => p.x)),
+    y = Math.min(...visible.map((p) => p.y));
+  return {
+    x,
+    y,
+    width: Math.max(0.01, Math.max(...visible.map((p) => p.x)) - x),
+    height: Math.max(0.01, Math.max(...visible.map((p) => p.y)) - y),
+  };
+}
+export function resizeShape(points, before, after, rotation = 0) {
+  return points.map((p) => {
+    const v = visibleShapePoint(p, rotation);
+    const resized = {
+      ...v,
+      x: after.x + ((v.x - before.x) * after.width) / before.width,
+      y: after.y + ((v.y - before.y) * after.height) / before.height,
+    };
+    return visibleShapePoint(resized, -rotation);
   });
 }
