@@ -7,6 +7,26 @@ export async function createBlankPdf(width, height) {
   return pdf.save();
 }
 
+// A problem sheet contains the captured question followed by a white solution page.
+export async function createProblemPdf(image, width, height) {
+  const pdf = await PDFDocument.create();
+  const picture = await pdf.embedPng(image.dataUrl);
+  const question = pdf.addPage([width, height]);
+  const margin = Math.min(width, height) * 0.05;
+  const scale = Math.min(
+    (width - margin * 2) / picture.width,
+    (height - margin * 2) / picture.height,
+  );
+  question.drawImage(picture, {
+    x: (width - picture.width * scale) / 2,
+    y: height - margin - picture.height * scale,
+    width: picture.width * scale,
+    height: picture.height * scale,
+  });
+  pdf.addPage([width, height]);
+  return pdf.save();
+}
+
 // Capture the visible orientation, including existing annotations and masks.
 export async function captureRegion(
   page,

@@ -10,7 +10,11 @@ import {
   shapeBounds,
   resizeShape,
 } from "../src/shapes.js";
-import { createBlankPdf, captureRegion } from "../src/slide-tools.js";
+import {
+  createBlankPdf,
+  createProblemPdf,
+  captureRegion,
+} from "../src/slide-tools.js";
 import { createTestPdf } from "./pdf-fixture.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -615,4 +619,67 @@ test("cross-page pen and highlighter gestures save continuously without edge str
       await out.document.destroy();
     }
   await source.document.destroy();
+});
+
+test("problem sheets embed the captured image on the left and save solution ink on the right", async () => {
+  const crop = createCanvas(400, 100);
+  crop.getContext("2d").fillStyle = "#e03131";
+  crop.getContext("2d").fillRect(0, 0, 400, 100);
+  const source = await loadSource(
+    await createProblemPdf({ dataUrl: crop.toDataURL("image/png") }, 400, 600),
+    "problem.pdf",
+    renderer,
+  );
+  const pages = await sourcePages(source);
+  assert.equal(pages.length, 2);
+  assert.equal(await extractText(pages), "");
+  const picture = await renderPage(pages[0], 1, () => createCanvas(1, 1));
+  const red = picture.getContext("2d").getImageData(200, 60, 1, 1).data;
+  assert.ok(
+    red[0] > red[1] + 80,
+    "captured image is embedded near the top of the problem sheet",
+  );
+  const blank = await renderPage(pages[1], 1, () => createCanvas(1, 1));
+  const white = blank.getContext("2d").getImageData(200, 300, 1, 1).data;
+  assert.ok(white[0] > 250 && white[1] > 250 && white[2] > 250);
+  pages[1].annotations = [
+    {
+      id: "solution",
+      type: "pen",
+      color: "#087f5b",
+      size: 0.01,
+      points: [
+        { x: 0.2, y: 0.5 },
+        { x: 0.8, y: 0.5 },
+      ],
+    },
+  ];
+  const original = await fixture("original.pdf", [
+    "ORIGINAL FIRST",
+    "ORIGINAL LAST",
+  ]);
+  const out = await loadSource(
+    await exportPdf([...original.pages, ...pages], {
+      canvasFactory: () => createCanvas(1, 1),
+    }),
+    "with-problem.pdf",
+    renderer,
+  );
+  const saved = await sourcePages(out);
+  assert.equal(saved.length, 4);
+  assert.match(
+    await extractText(saved.slice(0, 2)),
+    /ORIGINAL FIRST[\s\S]*ORIGINAL LAST/,
+  );
+  const solution = await renderPage(saved.at(-1), 1, () => createCanvas(1, 1));
+  const ink = solution.getContext("2d").getImageData(200, 300, 1, 1).data;
+  assert.ok(
+    ink[1] > ink[0] + 40,
+    "solution writing survives append and later PDF download",
+  );
+  await Promise.all([
+    source.document.destroy(),
+    original.source.document.destroy(),
+    out.document.destroy(),
+  ]);
 });

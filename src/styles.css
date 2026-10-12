@@ -2622,3 +2622,8 @@ input[type="radio"] {
   width: 18px;
   height: 18px;
 }
+
+.tool-problem-capture .annotation-canvas {
+  cursor: crosshair;
+  touch-action: none;
+}

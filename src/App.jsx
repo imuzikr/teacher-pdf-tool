@@ -44,7 +44,7 @@ import {
   advanceInkGesture,
   inkDrafts,
 } from "./ink-gesture.js";
-import { createBlankPdf, captureRegion } from "./slide-tools.js";
+import { createProblemPdf, captureRegion } from "./slide-tools.js";
 import {
   parseTerms,
   scanPdfWords,
@@ -151,6 +151,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   const [captureRect, setCaptureRect] = useState(null);
   const [practicePairs, setPracticePairs] = useState({});
   const slideSession = useRef(null);
+  const problemSession = useRef(null);
   const [laserPoint, setLaserPoint] = useState(null);
   const [laserTrail, setLaserTrail] = useState([]);
   const [tool, setTool] = useState("move");
@@ -250,7 +251,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   }, [slide, pages.length > 0]);
   useEffect(() => {
     const beforeUnload = (e) => {
-      if (dirty || assemblyDirty) {
+      if (dirty || assemblyDirty || problemSession.current) {
         e.preventDefault();
         e.returnValue = "";
       }
@@ -312,6 +313,10 @@ export default function App({ pdfjs, createOcrWorker }) {
   const targets = pages.filter((p) => selected.has(p.id));
   const importFiles = async (files) => {
     if (operation.current) return;
+    if (problemSession.current) {
+      notify("문제 풀이를 종료한 뒤 PDF 파일을 추가해 주세요.");
+      return;
+    }
     const list = Array.from(files);
     if (!list.length) return;
     operation.current = true;
@@ -514,6 +519,7 @@ export default function App({ pdfjs, createOcrWorker }) {
     }
   };
   const reset = () => {
+    problemSession.current = null;
     setAssembly([]);
     setAssemblyView(false);
     setAssemblyDirty(false);
@@ -556,8 +562,64 @@ export default function App({ pdfjs, createOcrWorker }) {
     setModal(null);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   };
+  const closeProblem = (keep) => {
+    if (operation.current || !problemSession.current) return;
+    const session = problemSession.current;
+    const sheets = pagesRef.current;
+    const next = keep ? [...session.pages, ...sheets] : session.pages;
+    // A saved problem is retained even if later slide writing is discarded.
+    if (keep && slideSession.current) {
+      const base = slideSession.current;
+      const previous = base.pages;
+      base.pages = session.pages === previous ? next : [...previous, ...sheets];
+      base.past = [...base.past, previous].slice(-20);
+      base.future = [];
+      base.dirty = true;
+      base.sourceIds.add(session.sourceId);
+    }
+    problemSession.current = null;
+    setPages(next);
+    setDirty(keep || session.dirty);
+    past.current = keep
+      ? [...session.past, session.pages].slice(-20)
+      : session.past;
+    future.current = keep ? [] : session.future;
+    setHistoryVersion((v) => v + 1);
+    setActiveId(session.activeId);
+    setSelected(session.selected);
+    setPracticePairs(session.practicePairs);
+    setCaptures(session.captures);
+    setZoom(session.zoom);
+    setPresenting(session.presenting);
+    setTool("move");
+    setDraft(null);
+    setInkPreview({});
+    setCaptureRect(null);
+    setLaserPoint(null);
+    setLaserTrail([]);
+    pointer.current = null;
+    setModal(null);
+    if (!keep) {
+      sources.current
+        .get(session.sourceId)
+        ?.document.destroy()
+        .catch(() => {});
+      sources.current.delete(session.sourceId);
+    } else
+      notify(
+        "문제와 풀이를 문서 마지막에 2페이지 추가했습니다. 문서 저장으로 다운로드할 수 있습니다.",
+      );
+  };
   const exitSlide = () => {
     if (operation.current) return;
+    if (problemSession.current) {
+      pointer.current = null;
+      setDraft(null);
+      setInkPreview({});
+      setCaptureRect(null);
+      setModal({ type: "problem-exit" });
+      return;
+    }
     if (
       slideSession.current &&
       pagesRef.current !== slideSession.current.pages
@@ -614,38 +676,14 @@ export default function App({ pdfjs, createOcrWorker }) {
     document.addEventListener("fullscreenchange", change);
     return () => document.removeEventListener("fullscreenchange", change);
   });
-  const addBlankPage = async () => {
-    if (operation.current || !page) return;
-    operation.current = true;
-    setBusyInline(true);
-    setBusy("빈 연습 페이지를 추가하는 중…");
-    try {
-      const size = rotatedSize(page);
-      const source = await loadSource(
-        await createBlankPdf(size.width, size.height),
-        "빈 연습 페이지.pdf",
-        pdfjs,
-      );
-      sources.current.set(source.id, source);
-      const [blank] = await sourcePages(source);
-      const next = [...pagesRef.current];
-      const index = next.findIndex((p) => p.id === page.id);
-      next.splice(index + 1, 0, blank);
-      commit(next);
-      setPracticePairs((old) => ({ ...old, [blank.id]: page.id }));
-      setActiveId(blank.id);
-      setSelected(new Set([blank.id]));
-      chooseTool("pen");
-      setPresenting(false);
-      setDraft(null);
-      pointer.current = null;
-    } catch (e) {
-      notify(`빈 페이지를 추가하지 못했습니다: ${e.message}`, true);
-    } finally {
-      operation.current = false;
-      setBusy("");
-      setBusyInline(false);
-    }
+  const startProblem = () => {
+    if (operation.current || !page || problemSession.current) return;
+    setTool((old) => (old === "problem-capture" ? "move" : "problem-capture"));
+    setDraft(null);
+    setInkPreview({});
+    setCaptureRect(null);
+    pointer.current = null;
+    setPresenting(false);
   };
   const finishCapture = async (current) => {
     if (current.rect.width < 0.003 || current.rect.height < 0.003) return;
@@ -654,6 +692,48 @@ export default function App({ pdfjs, createOcrWorker }) {
     setBusy("선택한 영역을 캡처하는 중…");
     try {
       const image = await captureRegion(current.page, current.rect);
+      if (current.problem) {
+        const size = rotatedSize(current.page);
+        let source;
+        try {
+          source = await loadSource(
+            await createProblemPdf(image, size.width, size.height),
+            "문제 풀이.pdf",
+            pdfjs,
+          );
+          const sheets = await sourcePages(source);
+          problemSession.current = {
+            pages: pagesRef.current,
+            dirty,
+            past: [...past.current],
+            future: [...future.current],
+            activeId,
+            selected: new Set(selected),
+            practicePairs,
+            captures,
+            zoom,
+            presenting,
+            sourceId: source.id,
+          };
+          sources.current.set(source.id, source);
+          setPages(sheets);
+          past.current = [];
+          future.current = [];
+          setHistoryVersion((v) => v + 1);
+          setPracticePairs({ [sheets[1].id]: sheets[0].id });
+          setActiveId(sheets[1].id);
+          setSelected(new Set([sheets[1].id]));
+          setCaptures([]);
+          setDirty(false);
+          setZoom(100);
+          setPresenting(false);
+          chooseTool("pen");
+          return;
+        } catch (error) {
+          source?.document.destroy().catch(() => {});
+          throw error;
+        }
+      }
       setCaptures((old) => [
         ...old,
         {
@@ -666,7 +746,10 @@ export default function App({ pdfjs, createOcrWorker }) {
       ]);
       setTool("move");
     } catch (e) {
-      notify(`캡처하지 못했습니다: ${e.message}`, true);
+      notify(
+        `${current.problem ? "문제 풀이를 열지" : "캡처하지"} 못했습니다: ${e.message}`,
+        true,
+      );
     } finally {
       operation.current = false;
       setBusy("");
@@ -738,6 +821,7 @@ export default function App({ pdfjs, createOcrWorker }) {
     stage.current?.scrollTo({ top: 0, left: 0 });
   };
   const navigate = (delta) => {
+    if (problemSession.current) return;
     if (tool === "redact" && regionSession?.mode === "manual") {
       navigateRegion(delta);
       return;
@@ -770,6 +854,7 @@ export default function App({ pdfjs, createOcrWorker }) {
     };
     pointer.current = {
       capture: true,
+      problem: tool === "problem-capture",
       origin,
       bounds,
       page: reference,
@@ -821,7 +906,7 @@ export default function App({ pdfjs, createOcrWorker }) {
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
-    if (tool === "capture") {
+    if (tool === "capture" || tool === "problem-capture") {
       beginCapture(e, reference);
       return;
     }
@@ -1139,7 +1224,8 @@ export default function App({ pdfjs, createOcrWorker }) {
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        save();
+        if (problemSession.current) setModal({ type: "problem-exit" });
+        else save();
         return;
       }
       if (!slide) return;
@@ -1741,8 +1827,14 @@ export default function App({ pdfjs, createOcrWorker }) {
                           >
                             {practiceReference && (
                               <div className="practice-pane-label">
-                                {index === 0 ? "원본 페이지" : "연습 페이지"} ·{" "}
-                                {pages.indexOf(target) + 1}쪽
+                                {problemSession.current
+                                  ? index === 0
+                                    ? "캡처한 문제"
+                                    : "문제 풀이"
+                                  : index === 0
+                                    ? "원본 페이지"
+                                    : "연습 페이지"}{" "}
+                                · {pages.indexOf(target) + 1}쪽
                               </div>
                             )}
                             <PageCanvas
@@ -1872,19 +1964,21 @@ export default function App({ pdfjs, createOcrWorker }) {
           {!presenting && (
             <div className="slide-options">
               <span>
-                {tool === "capture"
-                  ? "캡처할 영역을 드래그하세요. 캡처는 페이지를 넘겨도 화면 위에 유지됩니다."
-                  : tool === "laser"
-                    ? "마우스를 움직여 가리키세요. L 키로 레이저 포인터를 켜고 끌 수 있어요."
-                    : tool === "move"
-                      ? "드래그로 화면을 이동하세요. 방향키로 페이지를 넘길 수 있어요."
-                      : tool === "select"
-                        ? "추가한 필기·도형·텍스트·서명을 드래그해 이동하세요."
-                        : tool === "erase"
-                          ? "지울 필기·도형·텍스트를 클릭하세요."
-                          : tool === "shape"
-                            ? "도형을 선택하고 문서 위에서 드래그하세요."
-                            : "문서 위에 바로 필기하세요."}
+                {tool === "problem-capture"
+                  ? "문제로 사용할 영역을 드래그하세요. 캡처한 문제와 필기용 페이지가 두 쪽으로 열립니다."
+                  : tool === "capture"
+                    ? "캡처할 영역을 드래그하세요. 캡처는 페이지를 넘겨도 화면 위에 유지됩니다."
+                    : tool === "laser"
+                      ? "마우스를 움직여 가리키세요. L 키로 레이저 포인터를 켜고 끌 수 있어요."
+                      : tool === "move"
+                        ? "드래그로 화면을 이동하세요. 방향키로 페이지를 넘길 수 있어요."
+                        : tool === "select"
+                          ? "추가한 필기·도형·텍스트·서명을 드래그해 이동하세요."
+                          : tool === "erase"
+                            ? "지울 필기·도형·텍스트를 클릭하세요."
+                            : tool === "shape"
+                              ? "도형을 선택하고 문서 위에서 드래그하세요."
+                              : "문서 위에 바로 필기하세요."}
               </span>
               {["pen", "highlight", "text", "shape"].includes(tool) && (
                 <div className="drawing-options">
@@ -1934,7 +2028,7 @@ export default function App({ pdfjs, createOcrWorker }) {
             <div className="slide-toolgroup">
               <ToolButton
                 icon={ArrowLeft}
-                disabled={activeIndex === 0}
+                disabled={!!problemSession.current || activeIndex === 0}
                 onClick={() => navigate(-1)}
               >
                 이전
@@ -1944,7 +2038,9 @@ export default function App({ pdfjs, createOcrWorker }) {
               </span>
               <ToolButton
                 icon={ArrowRight}
-                disabled={activeIndex === pages.length - 1}
+                disabled={
+                  !!problemSession.current || activeIndex === pages.length - 1
+                }
                 onClick={() => navigate(1)}
               >
                 다음
@@ -2072,7 +2168,7 @@ export default function App({ pdfjs, createOcrWorker }) {
                   </ToolButton>
                 </>
               )}
-              {!presenting && (
+              {!presenting && !problemSession.current && (
                 <ToolButton
                   icon={Presentation}
                   onClick={() => startSlide("present")}
@@ -2080,13 +2176,14 @@ export default function App({ pdfjs, createOcrWorker }) {
                   프레젠테이션
                 </ToolButton>
               )}
-              {!presenting && (
+              {!presenting && !problemSession.current && (
                 <ToolButton
                   icon={FilePlus}
                   disabled={!!busy}
-                  onClick={addBlankPage}
+                  active={tool === "problem-capture"}
+                  onClick={startProblem}
                 >
-                  빈 페이지 추가
+                  문제 풀이
                 </ToolButton>
               )}
               {presenting && (
@@ -2174,6 +2271,7 @@ export default function App({ pdfjs, createOcrWorker }) {
       )}
 
       {slide &&
+        tool !== "problem-capture" &&
         captures.map((capture) => (
           <PinnedCapture
             key={capture.id}
@@ -2264,6 +2362,7 @@ export default function App({ pdfjs, createOcrWorker }) {
               clear: "이 페이지의 편집 지우기",
               shortcuts: "슬라이드 단축키",
               "slide-exit": "수업 작업을 저장할까요?",
+              "problem-exit": "문제 풀이를 저장할까요?",
               copy: "텍스트 복사",
             }[modal.type] || modal.title
           }
@@ -2272,11 +2371,43 @@ export default function App({ pdfjs, createOcrWorker }) {
           wide={modal.type === "signature" || modal.type === "ocr-review"}
           columns={modal.type === "redact"}
         >
+          {modal.type === "problem-exit" && (
+            <>
+              <p className="modal-description">
+                저장을 선택하면 캡처한 문제와 필기한 풀이를 현재 문서의 맨
+                마지막에 2페이지 추가합니다. 원래 문서로 돌아온 뒤 문서 저장으로
+                PDF를 다운로드할 수 있습니다.
+              </p>
+              <p className="modal-footnote">
+                저장하지 않으면 이번 문제 풀이만 버리고 원래 문서로 돌아갑니다.
+              </p>
+              <div className="modal-footer slide-exit-actions">
+                <ToolButton disabled={!!busy} onClick={closeModal}>
+                  취소
+                </ToolButton>
+                <ToolButton
+                  className="primary"
+                  data-default-focus
+                  disabled={!!busy}
+                  onClick={() => closeProblem(false)}
+                >
+                  저장하지 않고 종료
+                </ToolButton>
+                <ToolButton
+                  icon={FloppyDisk}
+                  disabled={!!busy}
+                  onClick={() => closeProblem(true)}
+                >
+                  저장하고 종료
+                </ToolButton>
+              </div>
+            </>
+          )}
           {modal.type === "slide-exit" && (
             <>
               <p className="modal-description">
-                추가한 빈 페이지와 이번 슬라이드 작업의 필기를 원본 페이지와
-                함께 새 PDF로 저장할 수 있습니다. 캡처 창은 저장되지 않습니다.
+                이번 슬라이드 작업의 필기를 문서의 모든 페이지와 함께 새 PDF로
+                저장할 수 있습니다. 캡처 창은 저장되지 않습니다.
               </p>
               <p className="modal-footnote">
                 저장하지 않으면 슬라이드 시작 전 상태로 돌아갑니다. 원본 파일과

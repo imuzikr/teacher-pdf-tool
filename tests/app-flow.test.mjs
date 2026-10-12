@@ -1250,9 +1250,38 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       document.querySelector(".pinned-capture"),
       "capture remains pinned across pages",
     );
-    const originalCanvasBeforeBlank = document.querySelector(
-      ".document-stage .page-canvas > canvas",
-    );
+    async function openProblem() {
+      await click("문제 풀이");
+      assert.ok(document.querySelector(".tool-problem-capture"));
+      assert.equal(
+        document.querySelectorAll(".pinned-capture").length,
+        0,
+        "floating captures do not obstruct question selection",
+      );
+      const canvas = document.querySelector(
+        ".document-stage .annotation-canvas",
+      );
+      const bounds = canvas.getBoundingClientRect();
+      await act(async () => {
+        for (const [type, x, y] of [
+          ["pointerdown", 0.1, 0.1],
+          ["pointermove", 0.7, 0.5],
+          ["pointerup", 0.7, 0.5],
+        ]) {
+          const event = new window.MouseEvent(type, {
+            bubbles: true,
+            clientX: bounds.left + bounds.width * x,
+            clientY: bounds.top + bounds.height * y,
+            button: 0,
+          });
+          Object.defineProperty(event, "pointerId", { value: 50 });
+          canvas.dispatchEvent(event);
+        }
+      });
+      for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
+        await settle();
+      await settle();
+    }
     const transientBusyKinds = [];
     const busyObserver = new window.MutationObserver(() => {
       const indicator = document.querySelector(".busy-indicator");
@@ -1267,12 +1296,12 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     });
     const pageBeforeBlank =
       document.querySelector(".slide-page-number").textContent;
-    await click("빈 페이지 추가");
+    await openProblem();
     for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
       await settle();
     assert.equal(
       document.querySelector(".slide-page-number").textContent.trim(),
-      `${parseInt(pageBeforeBlank) + 1} / ${baselineThumbnails + 1}`,
+      "2 / 2",
     );
     assert.ok(document.querySelector(".tool-pen"));
     assert.ok(
@@ -1299,12 +1328,19 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     const rightInkCanvas = document.querySelector(
       '[aria-label="오른쪽 연습 페이지"] .annotation-canvas',
     );
+    const problemQuestionCanvas = document.querySelector(
+      '[aria-label="왼쪽 참고 페이지"] .page-canvas > canvas',
+    );
     assert.equal(
-      document.querySelector(
-        '[aria-label="왼쪽 참고 페이지"] .page-canvas > canvas',
+      document.querySelectorAll(".pinned-capture").length,
+      0,
+      "problem view keeps ordinary floating captures separate",
+    );
+    assert.ok(
+      ![...document.querySelectorAll("button")].some(
+        (b) => b.textContent.trim() === "문제 풀이",
       ),
-      originalCanvasBeforeBlank,
-      "original canvas stays mounted when a blank page is added",
+      "nested problem sessions are prevented",
     );
     async function drawInPane(canvas, y, id) {
       const bounds = canvas.getBoundingClientRect();
@@ -1482,8 +1518,8 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       await settle();
     assert.equal(
       document.querySelectorAll(".pinned-capture").length,
-      2,
-      "reference page supports capture without leaving two-page view",
+      1,
+      "problem image supports capture without leaving two-page view",
     );
     busyObserver.disconnect();
     assert.ok(
@@ -1494,8 +1530,8 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       document.querySelector(
         '[aria-label="왼쪽 참고 페이지"] .page-canvas > canvas',
       ),
-      originalCanvasBeforeBlank,
-      "capture keeps the page bitmap mounted",
+      problemQuestionCanvas,
+      "capture keeps the question bitmap mounted",
     );
     await click("종료");
     await click("취소");
@@ -1508,6 +1544,20 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       /저장할까요/,
     );
     await click("저장하지 않고 종료");
+    assert.ok(
+      document.querySelector(".presentation-mode"),
+      "discarding a problem returns to the original slide screen",
+    );
+    assert.equal(
+      document.querySelector(".slide-page-number").textContent,
+      pageBeforeBlank,
+    );
+    assert.equal(
+      document.querySelectorAll(".pinned-capture").length,
+      1,
+      "original floating captures are restored",
+    );
+    await click("종료");
     assert.equal(
       document.querySelectorAll(".thumbnail").length,
       baselineThumbnails,
@@ -1518,7 +1568,7 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     );
     assert.equal(document.querySelector(".pinned-capture"), null);
     await click("슬라이드 재생");
-    await click("빈 페이지 추가");
+    await openProblem();
     for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
       await settle();
     await click("펜");
@@ -1539,40 +1589,68 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       36,
     );
     await click("종료");
+    assert.match(
+      document.querySelector('[role="dialog"] h2').textContent,
+      /문제 풀이/,
+    );
     const createDownloadUrl = URL.createObjectURL;
+    const previousDownload = downloaded;
     URL.createObjectURL = () => {
       throw new Error("download unavailable");
     };
+    await click("저장하고 종료");
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.equal(
+      downloaded,
+      previousDownload,
+      "saving a problem appends without downloading",
+    );
+    assert.ok(document.querySelector(".presentation-mode"));
+    assert.match(
+      document.querySelector(".slide-page-number").textContent,
+      new RegExp(`/ ${baselineThumbnails + 2}$`),
+    );
+    // A later discarded slide stroke must not remove the explicitly retained problem.
+    await click("펜");
+    await drawInPane(
+      document.querySelector(".document-stage .annotation-canvas"),
+      0.9,
+      60,
+    );
+    await click("종료");
     await click("저장하고 종료");
     for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
       await settle();
     assert.ok(
       document.querySelector(".presentation-mode"),
-      "failed download keeps session open",
+      "failed document download retains the slide work",
     );
-    assert.ok(
-      document.querySelector('[role="dialog"]'),
-      "failed download retains save choices",
-    );
+    assert.ok(document.querySelector('[role="dialog"]'));
     URL.createObjectURL = createDownloadUrl;
-    await click("저장하고 종료");
+    await click("저장하지 않고 종료");
+    assert.equal(document.querySelector(".presentation-mode"), null);
+    assert.equal(
+      document.querySelectorAll(".thumbnail").length,
+      baselineThumbnails + 2,
+      "retained problem survives later slide discard",
+    );
+    await click("저장");
     for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
       await settle();
-    assert.equal(document.querySelector(".presentation-mode"), null);
     const practice = await inAct(async () =>
       loadSource(await downloaded.arrayBuffer(), "practice.pdf", renderer),
     );
     const practicePages = await inAct(async () => sourcePages(practice));
-    assert.equal(practicePages.length, baselineThumbnails + 1);
+    assert.equal(practicePages.length, baselineThumbnails + 2);
     assert.equal(
       document.querySelectorAll(".thumbnail").length,
-      baselineThumbnails + 1,
+      baselineThumbnails + 2,
     );
     const savedLeft = await inAct(async () =>
-      renderPage(practicePages[0], 1, () => createCanvas(1, 1)),
+      renderPage(practicePages.at(-2), 1, () => createCanvas(1, 1)),
     );
     const savedRight = await inAct(async () =>
-      renderPage(practicePages[1], 1, () => createCanvas(1, 1)),
+      renderPage(practicePages.at(-1), 1, () => createCanvas(1, 1)),
     );
     const sampleInk = (canvas) =>
       canvas
@@ -1592,6 +1670,65 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     assert.ok(
       savedRed[0] > savedRed[2] + 40,
       "blank-page writing survives PDF export",
+    );
+    await click("슬라이드 재생");
+    await openProblem();
+    await act(async () =>
+      document.dispatchEvent(
+        new window.KeyboardEvent("keydown", {
+          key: "s",
+          ctrlKey: true,
+          bubbles: true,
+        }),
+      ),
+    );
+    assert.match(
+      document.querySelector('[role="dialog"] h2').textContent,
+      /문제 풀이/,
+    );
+    await click("저장하고 종료");
+    await click("종료");
+    assert.equal(
+      document.querySelector(".presentation-mode"),
+      null,
+      "a retained problem closes the slide without asking to discard it again",
+    );
+    assert.equal(
+      document.querySelectorAll(".thumbnail").length,
+      baselineThumbnails + 4,
+      "successive problems append in pairs at the document end",
+    );
+    await click("실행 취소");
+    assert.equal(
+      document.querySelectorAll(".thumbnail").length,
+      baselineThumbnails + 2,
+      "one undo removes only the latest appended problem",
+    );
+    await click("저장");
+    for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
+      await settle();
+    const afterUndo = await inAct(async () =>
+      loadSource(await downloaded.arrayBuffer(), "retained.pdf", renderer),
+    );
+    assert.equal(
+      (await inAct(async () => sourcePages(afterUndo))).length,
+      baselineThumbnails + 2,
+      "discarded temporary source cleanup does not destroy retained problem PDFs",
+    );
+    await inAct(async () => afterUndo.document.destroy());
+    await act(async () =>
+      document.dispatchEvent(
+        new window.KeyboardEvent("keydown", {
+          key: "z",
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+        }),
+      ),
+    );
+    assert.equal(
+      document.querySelectorAll(".thumbnail").length,
+      baselineThumbnails + 4,
     );
     await practice.document.destroy();
     await click("새 작업");
