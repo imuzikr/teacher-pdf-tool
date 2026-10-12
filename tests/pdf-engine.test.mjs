@@ -683,3 +683,78 @@ test("problem sheets embed the captured image on the left and save solution ink 
     out.document.destroy(),
   ]);
 });
+
+test("ruler keeps a straight cross-page highlight and bright yellow preserves dark text", async () => {
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const original = pdf.addPage([400, 300]);
+  original.drawText("BLACK", {
+    x: 100,
+    y: 142,
+    size: 18,
+    font,
+    color: rgb(0, 0, 0),
+  });
+  const source = await loadSource(await pdf.save(), "yellow.pdf", renderer);
+  const [page] = await sourcePages(source);
+  const canvas = await renderPage(page, 1, () => createCanvas(1, 1));
+  const data = canvas.getContext("2d").getImageData(100, 145, 70, 10).data;
+  let dark = -1;
+  for (let i = 0; i < data.length; i += 4)
+    if (data[i] < 10 && data[i + 1] < 10 && data[i + 2] < 10) {
+      dark = i / 4;
+      break;
+    }
+  assert.ok(dark >= 0);
+  const right = { ...page, id: "ruler-right" };
+  const gesture = beginInkGesture(
+    [
+      { page, bounds: { left: 0, top: 0, width: 400, height: 300 } },
+      { page: right, bounds: { left: 400, top: 0, width: 400, height: 300 } },
+    ],
+    { type: "highlight", color: "#ffff00", size: 0.04, straight: true },
+    { x: 50, y: 150 },
+  );
+  advanceInkGesture(gesture, { x: 200, y: 50 });
+  advanceInkGesture(gesture, { x: 650, y: 150 });
+  const drafts = inkDrafts(gesture);
+  for (const strokes of Object.values(drafts)) {
+    assert.equal(strokes.length, 1);
+    assert.equal(strokes[0].points.length, 2);
+    assert.ok(
+      strokes[0].points.every((p) => p.y === 0.5),
+      "curved intermediate samples do not bend a ruler line",
+    );
+  }
+  page.annotations = drafts[page.id];
+  await drawAnnotations(
+    canvas.getContext("2d"),
+    page,
+    canvas.width,
+    canvas.height,
+  );
+  const yellow = canvas.getContext("2d").getImageData(240, 150, 1, 1).data;
+  assert.deepEqual([...yellow], [255, 255, 0, 255]);
+  const textX = 100 + (dark % 70),
+    textY = 145 + Math.floor(dark / 70);
+  const preserved = canvas
+    .getContext("2d")
+    .getImageData(textX, textY, 1, 1).data;
+  assert.ok(
+    preserved[0] < 10 && preserved[1] < 10 && preserved[2] < 10,
+    "yellow does not paint over the text",
+  );
+  const out = await loadSource(
+    await exportPdf([page], { canvasFactory: () => createCanvas(1, 1) }),
+    "highlight.pdf",
+    renderer,
+  );
+  const [saved] = await sourcePages(out);
+  const rendered = await renderPage(saved, 1, () => createCanvas(1, 1));
+  const paper = rendered.getContext("2d").getImageData(240, 150, 1, 1).data;
+  assert.ok(
+    paper[0] > 245 && paper[1] > 245 && paper[2] < 15,
+    "download retains the vivid yellow",
+  );
+  await Promise.all([source.document.destroy(), out.document.destroy()]);
+});

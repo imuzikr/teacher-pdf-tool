@@ -835,6 +835,68 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
         slideCanvas.dispatchEvent(event);
       }
     });
+    await click("형광펜");
+    assert.equal(
+      document.querySelector('[aria-label="노랑 색상"]').style.background,
+      "rgb(255, 255, 0)",
+    );
+    assert.equal(
+      document
+        .querySelectorAll(".color-swatch")[5]
+        .nextElementSibling.getAttribute("aria-label"),
+      "형광펜 직선 자",
+      "ruler follows the sixth purple swatch",
+    );
+    await click("형광펜 직선 자");
+    assert.equal(
+      document
+        .querySelector('[aria-label="형광펜 직선 자"]')
+        .getAttribute("aria-pressed"),
+      "true",
+    );
+    const beforeRuler = slideCanvas.toDataURL();
+    await act(async () => {
+      for (const [type, x, y] of [
+        ["pointerdown", 0.1, 0.7],
+        ["pointermove", 0.3, 0.5],
+        ["pointermove", 0.65, 0.7],
+        ["pointerup", 0.65, 0.7],
+      ]) {
+        const event = new window.MouseEvent(type, {
+          bubbles: true,
+          clientX: x * slideRect.width,
+          clientY: y * slideRect.height,
+          button: 0,
+        });
+        Object.defineProperty(event, "pointerId", { value: 70 });
+        slideCanvas.dispatchEvent(event);
+      }
+    });
+    await settle();
+    assert.ok(
+      slideCanvas.toDataURL() !== beforeRuler,
+      "ruler draws a highlight",
+    );
+    await click("지우개");
+    await act(async () => {
+      const event = new window.MouseEvent("pointerdown", {
+        bubbles: true,
+        clientX: 0.35 * slideRect.width,
+        clientY: 0.7 * slideRect.height,
+        button: 0,
+      });
+      Object.defineProperty(event, "pointerId", { value: 71 });
+      slideCanvas.dispatchEvent(event);
+    });
+    await settle();
+    assert.ok(
+      slideCanvas.toDataURL() === beforeRuler,
+      "straight highlight can be erased in its middle",
+    );
+    await click("취소");
+    await click("취소");
+    await click("형광펜");
+    await click("형광펜 직선 자");
     await click("도형");
     const shapeMenu = document.querySelector(
       '[role="menu"][aria-label="도형 종류"]',
@@ -1192,6 +1254,60 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       document.querySelector(".document-stage .annotation-canvas").toDataURL(),
       pdfOverlayBeforeCaptureInk,
     );
+    await click("형광펜");
+    await click("형광펜 직선 자");
+    await act(async () => {
+      for (const [type, x, y] of [
+        ["pointerdown", 0.2, 0.2],
+        ["pointermove", 0.4, 0.7],
+        ["pointermove", 0.7, 0.2],
+        ["pointerup", 0.7, 0.2],
+      ]) {
+        const event = new window.MouseEvent(type, {
+          bubbles: true,
+          clientX: x * 400,
+          clientY: y * 200,
+          button: 0,
+        });
+        Object.defineProperty(event, "pointerId", { value: 72 });
+        floatingDrawing.dispatchEvent(event);
+      }
+    });
+    const captureHighlight = [
+      ...floatingDrawing.querySelectorAll("polyline"),
+    ].at(-1);
+    const captureLinePoints = captureHighlight
+      .getAttribute("points")
+      .split(" ");
+    assert.equal(
+      captureLinePoints.length,
+      2,
+      "capture highlighter also follows the ruler",
+    );
+    assert.equal(
+      captureLinePoints[0].split(",")[1],
+      captureLinePoints[1].split(",")[1],
+    );
+    assert.equal(captureHighlight.style.mixBlendMode, "multiply");
+    assert.equal(captureHighlight.getAttribute("opacity"), "1");
+    await click("지우개");
+    await act(async () =>
+      floatingDrawing.dispatchEvent(
+        new window.MouseEvent("pointerdown", {
+          bubbles: true,
+          clientX: 180,
+          clientY: 40,
+          button: 0,
+        }),
+      ),
+    );
+    assert.equal(
+      floatingDrawing.querySelectorAll("polyline").length,
+      1,
+      "straight capture highlight can be erased separately",
+    );
+    await click("형광펜");
+    await click("형광펜 직선 자");
     await click("레이저 포인터");
     let capturedLaserPointer;
     floatingDrawing.setPointerCapture = (id) => {

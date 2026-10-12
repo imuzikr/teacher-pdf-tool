@@ -10,6 +10,7 @@ export default function PinnedCapture({
   color,
   size,
   shapeKind,
+  straightHighlight,
   onLaserMove,
   onLaserLeave,
 }) {
@@ -246,6 +247,7 @@ export default function PinnedCapture({
                 color,
                 size,
                 shapeKind,
+                straight: tool === "highlight" && straightHighlight,
                 origin: p,
                 points: [p],
               };
@@ -267,7 +269,9 @@ export default function PinnedCapture({
                         point(e),
                         aspect,
                       )
-                    : [...drawing.current.points, point(e)],
+                    : drawing.current.straight
+                      ? [drawing.current.origin, point(e)]
+                      : [...drawing.current.points, point(e)],
               };
               setDraft(drawing.current);
             }}
@@ -283,7 +287,9 @@ export default function PinnedCapture({
                         point(e),
                         aspect,
                       )
-                    : [...drawing.current.points, point(e)],
+                    : drawing.current.straight
+                      ? [drawing.current.origin, point(e)]
+                      : [...drawing.current.points, point(e)],
               };
               drawing.current = null;
               setDraft(null);
@@ -332,7 +338,18 @@ export default function PinnedCapture({
                   strokeWidth={
                     stroke.size * 1000 * (stroke.type === "highlight" ? 4 : 1)
                   }
-                  opacity={stroke.type === "highlight" ? 0.35 : 1}
+                  opacity={
+                    stroke.type === "highlight"
+                      ? stroke.color === "#ffff00"
+                        ? 1
+                        : 0.35
+                      : 1
+                  }
+                  style={
+                    stroke.type === "highlight"
+                      ? { mixBlendMode: "multiply" }
+                      : undefined
+                  }
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />

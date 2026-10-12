@@ -2627,3 +2627,27 @@ input[type="radio"] {
   cursor: crosshair;
   touch-action: none;
 }
+
+.ruler-toggle {
+  width: 32px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #a4c2af;
+  border-radius: 7px;
+  background: transparent;
+  color: #315e48;
+  cursor: pointer;
+  margin-left: 3px;
+}
+.ruler-toggle.active {
+  background: #dceee3;
+  border-color: #087f5b;
+  color: #006b47;
+}
+.ruler-toggle:hover {
+  background: #e4f1e8;
+}
+.capture-drawing-area {
+  isolation: isolate;
+}

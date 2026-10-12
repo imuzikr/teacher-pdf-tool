@@ -184,6 +184,10 @@ export function PageCanvas({
     const temporary = document.createElement("canvas");
     temporary.width = dimensions.width;
     temporary.height = dimensions.height;
+    // Compose against the PDF bitmap so bright highlights preserve dark text.
+    temporary
+      .getContext("2d")
+      .drawImage(base.current, 0, 0, dimensions.width, dimensions.height);
     drawAnnotations(
       temporary.getContext("2d"),
       page,

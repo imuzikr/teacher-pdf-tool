@@ -40,15 +40,36 @@ export function beginInkGesture(pages, template, start) {
     const inside = !!clipInkSegment(start, start, target.bounds);
     return {
       ...target,
+      straightId: uid(),
       connected: inside,
       strokes: inside
         ? [{ ...template, id: uid(), points: [normalized(start, target)] }]
         : [],
     };
   });
-  return { ink: true, template, last: start, targets };
+  return { ink: true, template, origin: start, last: start, targets };
 }
 export function advanceInkGesture(gesture, end) {
+  if (gesture.template.straight) {
+    for (const target of gesture.targets) {
+      const clipped = clipInkSegment(gesture.origin, end, target.bounds);
+      target.strokes = clipped
+        ? [
+            {
+              ...gesture.template,
+              id: target.straightId,
+              points: [
+                normalized(clipped.start, target),
+                normalized(clipped.end, target),
+              ],
+            },
+          ]
+        : [];
+    }
+    gesture.last = end;
+    return;
+  }
+
   for (const target of gesture.targets) {
     const clipped = clipInkSegment(gesture.last, end, target.bounds);
     if (

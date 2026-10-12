@@ -150,7 +150,13 @@ export async function drawAnnotations(
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       if (a.type === "pen" || a.type === "highlight") {
-        ctx.globalAlpha = a.type === "highlight" ? 0.32 : 1;
+        ctx.globalAlpha =
+          a.type === "highlight"
+            ? a.color?.toLowerCase() === "#ffff00"
+              ? 1
+              : 0.32
+            : 1;
+        if (a.type === "highlight") ctx.globalCompositeOperation = "multiply";
         ctx.lineWidth =
           (a.type === "highlight" ? Math.max(a.size, 0.025) : a.size) * w;
         ctx.beginPath();

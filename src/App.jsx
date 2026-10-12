@@ -20,6 +20,7 @@ import {
   Cursor,
   PencilSimple,
   Highlighter,
+  Ruler,
   Shapes,
   TextT,
   Eraser,
@@ -74,7 +75,7 @@ const penPalette = [
   ["초록색", "#087f5b"],
 ];
 const highlightPalette = [
-  ["노랑", "#ffe600"],
+  ["노랑", "#ffff00"],
   ["연두", "#a3e635"],
   ["분홍", "#ff80b5"],
   ["하늘색", "#67d5f5"],
@@ -115,10 +116,18 @@ function annotationHit(a, p, page) {
       Math.max(a.size, 0.018),
     );
   if (a.points)
-    return a.points.some(
-      (q) =>
-        Math.hypot(q.x - p.x, ((q.y - p.y) * page.height) / page.width) <
+    return (
+      hitShape(
+        a.points,
+        p,
+        page.width / page.height,
         Math.max(a.size, 0.025),
+      ) ||
+      a.points.some(
+        (q) =>
+          Math.hypot(q.x - p.x, ((q.y - p.y) * page.height) / page.width) <
+          Math.max(a.size, 0.025),
+      )
     );
   const width =
     a.width ||
@@ -165,7 +174,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   useEffect(() => setEditingPageId(activeId), [activeId]);
   const colorMemory = useRef({
     pen: "#087f5b",
-    highlight: "#ffe600",
+    highlight: "#ffff00",
     shape: "#087f5b",
     text: "#087f5b",
   });
@@ -190,6 +199,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   }, [shapeMenu]);
   const [color, setColor] = useState("#087f5b");
   const [size, setSize] = useState(0.004);
+  const [straightHighlight, setStraightHighlight] = useState(false);
   const [fontSize, setFontSize] = useState(0.025);
   const [modal, setModal] = useState(null);
   const [compression, setCompression] = useState(150);
@@ -974,6 +984,7 @@ export default function App({ pdfjs, createOcrWorker }) {
       type: tool,
       color: tool === "redact" ? "#ffffff" : color,
       size,
+      ...(tool === "highlight" ? { straight: straightHighlight } : {}),
       ...(tool === "shape" ? { shapeKind } : {}),
       ...(tool === "redact" ? { ...p, width: 0, height: 0 } : { points: [p] }),
     };
@@ -2007,6 +2018,17 @@ export default function App({ pdfjs, createOcrWorker }) {
                         />
                       ),
                     )}
+                    {tool === "highlight" && (
+                      <button
+                        className={`ruler-toggle ${straightHighlight ? "active" : ""}`}
+                        aria-label="형광펜 직선 자"
+                        title="직선 형광펜"
+                        aria-pressed={straightHighlight}
+                        onClick={() => setStraightHighlight((v) => !v)}
+                      >
+                        <Ruler size={22} />
+                      </button>
+                    )}
                   </div>
                   <label>
                     크기{" "}
@@ -2280,6 +2302,7 @@ export default function App({ pdfjs, createOcrWorker }) {
             color={color}
             size={size}
             shapeKind={shapeKind}
+            straightHighlight={straightHighlight}
             onLaserMove={moveLaser}
             onLaserLeave={clearLaser}
             onChange={(next) =>
