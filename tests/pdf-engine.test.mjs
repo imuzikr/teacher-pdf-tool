@@ -1,4 +1,8 @@
 import {
+  copyCaptureImage,
+  captureWithWriting,
+} from "../src/capture-clipboard.js";
+import {
   beginInkGesture,
   advanceInkGesture,
   inkDrafts,
@@ -757,4 +761,79 @@ test("ruler keeps a straight cross-page highlight and bright yellow preserves da
     "download retains the vivid yellow",
   );
   await Promise.all([source.document.destroy(), out.document.destroy()]);
+});
+
+test("clipboard image writes start before rendering completes and retain capture writing", async () => {
+  const canvas = createCanvas(300, 200);
+  canvas.getContext("2d").fillStyle = "white";
+  canvas.getContext("2d").fillRect(0, 0, 300, 200);
+  const capture = {
+    dataUrl: canvas.toDataURL("image/png"),
+    strokes: [
+      {
+        id: "ink",
+        type: "pen",
+        color: "#e03131",
+        size: 0.02,
+        points: [
+          { x: 0.1, y: 0.5 },
+          { x: 0.9, y: 0.5 },
+        ],
+      },
+    ],
+  };
+  let completeImage;
+  const ready = new Promise((resolve) => {
+    completeImage = resolve;
+  });
+  class Item {
+    constructor(items) {
+      this.items = items;
+    }
+  }
+  let called = false,
+    clipboardPng;
+  const result = copyCaptureImage(
+    ready,
+    {
+      async write(items) {
+        called = true;
+        clipboardPng = await items[0].items["image/png"];
+      },
+    },
+    Item,
+  );
+  assert.ok(
+    called,
+    "write starts within the pointer event before rasterization finishes",
+  );
+  completeImage(await captureWithWriting(capture, () => createCanvas(1, 1)));
+  assert.deepEqual(await result, { ok: true });
+  assert.equal(clipboardPng.type, "image/png");
+  const picture = await loadImage(
+    Buffer.from(await clipboardPng.arrayBuffer()),
+  );
+  const copied = createCanvas(picture.width, picture.height);
+  copied.getContext("2d").drawImage(picture, 0, 0);
+  const ink = copied.getContext("2d").getImageData(150, 100, 1, 1).data;
+  assert.ok(
+    ink[0] > ink[1] + 80,
+    "manual copy includes the writing displayed on the capture",
+  );
+  assert.deepEqual(await copyCaptureImage(capture, {}, Item), {
+    ok: false,
+    reason: "unsupported",
+  });
+  assert.deepEqual(
+    await copyCaptureImage(
+      capture,
+      {
+        async write() {
+          throw new Error("denied");
+        },
+      },
+      Item,
+    ),
+    { ok: false, reason: "blocked" },
+  );
 });

@@ -1,11 +1,12 @@
 import { shapePoints, shapePath, hitShape } from "./shapes.js";
 import React, { useRef, useState, useEffect } from "react";
-import { Minus, Plus, X, ArrowsDownUp } from "@phosphor-icons/react";
+import { Minus, Plus, X, ArrowsDownUp, Copy } from "@phosphor-icons/react";
 
 export default function PinnedCapture({
   capture,
   onChange,
   onClose,
+  onCopy,
   tool,
   color,
   size,
@@ -179,6 +180,14 @@ export default function PinnedCapture({
             onClick={() => resize(1.2)}
           >
             <Plus size={16} />
+          </button>
+          <button
+            className="icon-button"
+            aria-label="캡처 이미지 복사"
+            title="클립보드에 이미지 복사"
+            onClick={onCopy}
+          >
+            <Copy size={16} />
           </button>
         </div>
         <span>

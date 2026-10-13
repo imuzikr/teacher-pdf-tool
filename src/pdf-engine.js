@@ -152,13 +152,13 @@ export async function drawAnnotations(
       if (a.type === "pen" || a.type === "highlight") {
         ctx.globalAlpha =
           a.type === "highlight"
-            ? a.color?.toLowerCase() === "#ffff00"
-              ? 1
-              : 0.32
+            ? (a.opacity ?? (a.color?.toLowerCase() === "#ffff00" ? 1 : 0.32))
             : 1;
         if (a.type === "highlight") ctx.globalCompositeOperation = "multiply";
         ctx.lineWidth =
-          (a.type === "highlight" ? Math.max(a.size, 0.025) : a.size) * w;
+          (a.type === "highlight"
+            ? (a.strokeWidth ?? Math.max(a.size, 0.025))
+            : a.size) * w;
         ctx.beginPath();
         a.points.forEach((p, i) =>
           i ? ctx.lineTo(p.x * w, p.y * h) : ctx.moveTo(p.x * w, p.y * h),

@@ -50,6 +50,26 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     value: window.navigator,
     configurable: true,
   });
+  const copiedPngs = [];
+  let clipboardBlocked = false;
+  const originalClipboardItem = globalThis.ClipboardItem;
+  globalThis.ClipboardItem = class {
+    constructor(items) {
+      this.items = items;
+    }
+    async getType(type) {
+      return this.items[type];
+    }
+  };
+  Object.defineProperty(globalThis.navigator, "clipboard", {
+    configurable: true,
+    value: {
+      async write(items) {
+        if (clipboardBlocked) throw new Error("clipboard permission denied");
+        copiedPngs.push(await items[0].getType("image/png"));
+      },
+    },
+  });
   const canvases = new WeakMap();
   // Browsers reset the bitmap even when assigning the same canvas dimensions.
   for (const property of ["width", "height"]) {
@@ -134,10 +154,8 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
   };
   let copied = "";
   let downloaded;
-  window.navigator.clipboard = {
-    writeText: async (value) => {
-      copied = value;
-    },
+  window.navigator.clipboard.writeText = async (value) => {
+    copied = value;
   };
   URL.createObjectURL = (blob) => {
     downloaded = blob;
@@ -766,8 +784,56 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       document.querySelector(".pinned-capture"),
       "main view capture is shown without entering slide mode",
     );
+    assert.equal(
+      copiedPngs.at(-1).type,
+      "image/png",
+      "capture automatically copies an actual image",
+    );
+    const automaticPng = Buffer.from(await copiedPngs.at(-1).arrayBuffer());
+    assert.ok(
+      automaticPng.equals(
+        Buffer.from(
+          document.querySelector(".pinned-capture img").src.split(",")[1],
+          "base64",
+        ),
+      ),
+    );
+    const beforeManualCopy = copiedPngs.length;
+    clipboardBlocked = true;
+    await click("캡처 이미지 복사");
+    assert.equal(copiedPngs.length, beforeManualCopy);
+    assert.ok(
+      document.querySelector(".pinned-capture"),
+      "clipboard rejection keeps the capture visible",
+    );
+    clipboardBlocked = false;
+    await click("캡처 이미지 복사");
+    assert.equal(
+      copiedPngs.length,
+      beforeManualCopy + 1,
+      "manual copy retries successfully",
+    );
     await click("캡처 닫기");
     assert.equal(document.querySelector(".pinned-capture"), null);
+    clipboardBlocked = true;
+    await click("캡처");
+    await mainGesture(
+      [
+        ["pointerdown", 0.1, 0.3],
+        ["pointermove", 0.6, 0.65],
+        ["pointerup", 0.6, 0.65],
+      ],
+      83,
+    );
+    for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
+      await settle();
+    assert.ok(
+      document.querySelector(".pinned-capture"),
+      "automatic clipboard failure does not fail the capture",
+    );
+    clipboardBlocked = false;
+    await click("캡처 이미지 복사");
+    await click("캡처 닫기");
     await click("슬라이드 재생");
     assert.ok(document.querySelector(".presentation-mode"));
     const zoomOverlay = document.querySelector(".canvas-zoom");
@@ -2105,6 +2171,8 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
   } finally {
     await act(async () => root.unmount());
     console.error = consoleError;
+    if (originalClipboardItem === undefined) delete globalThis.ClipboardItem;
+    else globalThis.ClipboardItem = originalClipboardItem;
     globalThis.setTimeout = timer;
     await server.close();
     dom.window.close();

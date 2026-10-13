@@ -40,6 +40,7 @@ import { ToolButton, Modal, PageCanvas, SignaturePad } from "./components.jsx";
 import PdfAssembler from "./PdfAssembler.jsx";
 import { shapeOptions, shapePoints, hitShape, resizeShape } from "./shapes.js";
 import PinnedCapture from "./PinnedCapture.jsx";
+import { copyCaptureImage, captureWithWriting } from "./capture-clipboard.js";
 import {
   beginInkGesture,
   advanceInkGesture,
@@ -699,13 +700,30 @@ export default function App({ pdfjs, createOcrWorker }) {
     pointer.current = null;
     setPresenting(false);
   };
+  const reportCaptureCopy = (result, automatic = false) =>
+    notify(
+      result.ok
+        ? "캡처 이미지를 클립보드에 복사했습니다. 다른 곳에서 붙여넣기 할 수 있습니다."
+        : result.reason === "unsupported"
+          ? "캡처는 유지됩니다. 이 브라우저는 이미지 클립보드 복사를 지원하지 않습니다."
+          : automatic
+            ? "자동 복사가 허용되지 않았습니다. 캡처 이미지의 복사 버튼으로 다시 시도해 주세요."
+            : "이미지를 복사하지 못했습니다. 브라우저의 클립보드 복사 권한을 확인해 주세요.",
+      !result.ok,
+    );
+  const copyPinnedCapture = (capture) => {
+    copyCaptureImage(captureWithWriting(capture)).then(reportCaptureCopy);
+  };
   const finishCapture = async (current) => {
     if (current.rect.width < 0.003 || current.rect.height < 0.003) return;
     operation.current = true;
     setBusyInline(true);
     setBusy("선택한 영역을 캡처하는 중…");
     try {
-      const image = await captureRegion(current.page, current.rect);
+      const imageReady = captureRegion(current.page, current.rect);
+      const copied = copyCaptureImage(imageReady);
+      const image = await imageReady;
+      copied.then((result) => reportCaptureCopy(result, true));
       if (current.problem) {
         const size = rotatedSize(current.page);
         let source;
@@ -728,6 +746,7 @@ export default function App({ pdfjs, createOcrWorker }) {
             zoom,
             presenting,
             sourceId: source.id,
+            image,
           };
           sources.current.set(source.id, source);
           setPages(sheets);
@@ -2284,6 +2303,18 @@ export default function App({ pdfjs, createOcrWorker }) {
                   프레젠테이션
                 </ToolButton>
               )}
+              {problemSession.current && (
+                <ToolButton
+                  icon={Copy}
+                  onClick={() =>
+                    copyCaptureImage(problemSession.current.image).then(
+                      reportCaptureCopy,
+                    )
+                  }
+                >
+                  문제 이미지 복사
+                </ToolButton>
+              )}
               {!presenting && !problemSession.current && (
                 <ToolButton
                   icon={FilePlus}
@@ -2396,6 +2427,7 @@ export default function App({ pdfjs, createOcrWorker }) {
                 old.map((c) => (c.id === next.id ? next : c)),
               )
             }
+            onCopy={() => copyPinnedCapture(capture)}
             onClose={() =>
               setCaptures((old) => old.filter((c) => c.id !== capture.id))
             }
