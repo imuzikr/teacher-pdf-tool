@@ -2677,3 +2677,72 @@ input[type="radio"] {
 .main-drawing-options .drawing-options {
   flex-wrap: wrap;
 }
+
+.document-title-bar {
+  flex-shrink: 0;
+  padding: 14px 20px 11px;
+  border-bottom: 1px solid #d8e4db;
+  color: #315e48;
+}
+.document-title-bar .document-name > span:first-of-type {
+  max-width: none;
+}
+.document-title-bar .document-name > svg,
+.document-title-bar .unsaved-dot {
+  flex-shrink: 0;
+}
+.page-strip-actions {
+  flex-shrink: 0;
+}
+.page-strip-list[hidden],
+.page-strip-empty[hidden] {
+  display: none;
+}
+.page-strip.collapsed .page-strip-heading {
+  margin-bottom: 9px;
+}
+.editor-workspace .document-heading {
+  display: block;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  padding: 12px 20px 7px;
+  min-height: 0;
+  flex-shrink: 0;
+}
+.editor-workspace .document-controls {
+  width: max-content;
+  min-width: 100%;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+}
+.editor-workspace .document-zoom {
+  flex-wrap: nowrap;
+}
+.editor-workspace .document-controls > *,
+.editor-workspace .document-zoom > * {
+  flex-shrink: 0;
+}
+.editor-workspace .main-drawing-options {
+  padding: 0;
+  margin: 0 5px;
+}
+.editor-workspace .main-drawing-options .drawing-options {
+  flex-wrap: nowrap;
+  gap: 9px;
+}
+.editor-workspace .color-palette {
+  gap: 5px;
+}
+.editor-workspace .document-hint {
+  margin-top: 0;
+}
+@media (max-width: 720px) {
+  .document-title-bar {
+    padding: 10px;
+  }
+  .editor-workspace .document-heading {
+    padding: 8px 10px;
+  }
+}

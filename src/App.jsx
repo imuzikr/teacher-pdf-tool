@@ -154,6 +154,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   const [selected, setSelected] = useState(new Set());
   const [activeId, setActiveId] = useState(null);
   const [zoom, setZoom] = useState(100);
+  const [previewsCollapsed, setPreviewsCollapsed] = useState(false);
   const [slide, setSlide] = useState(false);
   const [presenting, setPresenting] = useState(false);
   const [captures, setCaptures] = useState([]);
@@ -530,6 +531,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   };
   const reset = () => {
     problemSession.current = null;
+    setPreviewsCollapsed(false);
     setAssembly([]);
     setAssemblyView(false);
     setAssemblyDirty(false);
@@ -1581,8 +1583,25 @@ export default function App({ pdfjs, createOcrWorker }) {
             />
           ) : (
             <>
+              {page && !slide && (
+                <div className="document-title-bar" aria-label="문서 제목">
+                  <div className="document-name">
+                    <FilePdf size={18} />
+                    <span title={page.source.name}>{page.source.name}</span>
+                    {dirty && (
+                      <span
+                        className="unsaved-dot"
+                        title="저장하지 않은 변경 사항"
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
               {!slide && (
-                <aside className="page-strip" aria-label="페이지 목록">
+                <aside
+                  className={`page-strip ${previewsCollapsed ? "collapsed" : ""}`}
+                  aria-label="페이지 목록"
+                >
                   <div className="page-strip-heading">
                     <div>
                       <strong>페이지</strong>
@@ -1591,29 +1610,45 @@ export default function App({ pdfjs, createOcrWorker }) {
                         드래그해서 순서 변경 · 가로로 스크롤
                       </span>
                     </div>
-                    <button
-                      className="text-button"
-                      disabled={!pages.length || !!busy}
-                      onClick={() =>
-                        setSelected(
-                          selected.size === pages.length
-                            ? new Set()
-                            : new Set(pages.map((p) => p.id)),
-                        )
-                      }
-                    >
-                      {pages.length && selected.size === pages.length
-                        ? "선택 해제"
-                        : "전체 선택"}
-                    </button>
+                    <div className="page-strip-actions">
+                      <button
+                        className="text-button"
+                        aria-controls="page-previews"
+                        aria-expanded={!previewsCollapsed}
+                        onClick={() => setPreviewsCollapsed((v) => !v)}
+                      >
+                        {previewsCollapsed ? "펼치기" : "접기"}
+                      </button>
+                      <button
+                        className="text-button"
+                        disabled={!pages.length || !!busy}
+                        onClick={() =>
+                          setSelected(
+                            selected.size === pages.length
+                              ? new Set()
+                              : new Set(pages.map((p) => p.id)),
+                          )
+                        }
+                      >
+                        {pages.length && selected.size === pages.length
+                          ? "선택 해제"
+                          : "전체 선택"}
+                      </button>
+                    </div>
                   </div>
                   {!pages.length ? (
-                    <p className="page-strip-empty">
+                    <p
+                      id="page-previews"
+                      className="page-strip-empty"
+                      hidden={previewsCollapsed}
+                    >
                       문서를 추가하면 페이지가 여기에 나타나요
                     </p>
                   ) : (
                     <div
                       className="thumbnails page-strip-list"
+                      id="page-previews"
+                      hidden={previewsCollapsed}
                       tabIndex={0}
                       aria-label="페이지 미리보기 · 가로 스크롤"
                     >
@@ -1703,16 +1738,18 @@ export default function App({ pdfjs, createOcrWorker }) {
                   <div
                     className={`document-heading ${slide ? "slide-heading" : ""}`}
                   >
-                    <div className="document-name">
-                      <FilePdf size={18} />
-                      <span title={page.source.name}>{page.source.name}</span>
-                      {dirty && (
-                        <span
-                          className="unsaved-dot"
-                          title="저장하지 않은 변경 사항"
-                        />
-                      )}
-                    </div>
+                    {slide && (
+                      <div className="document-name">
+                        <FilePdf size={18} />
+                        <span title={page.source.name}>{page.source.name}</span>
+                        {dirty && (
+                          <span
+                            className="unsaved-dot"
+                            title="저장하지 않은 변경 사항"
+                          />
+                        )}
+                      </div>
+                    )}
                     <div className="document-controls">
                       {!slide && (
                         <div
@@ -1773,6 +1810,11 @@ export default function App({ pdfjs, createOcrWorker }) {
                               </ToolButton>
                             ))}
                           </div>
+                          {["pen", "highlight"].includes(tool) && (
+                            <div className="main-drawing-options">
+                              {drawingOptions()}
+                            </div>
+                          )}
                           <button
                             className="text-button"
                             onClick={() => startSlide("present")}
@@ -1780,6 +1822,14 @@ export default function App({ pdfjs, createOcrWorker }) {
                           >
                             <Presentation size={16} /> 프레젠테이션
                           </button>
+                          {["pen", "highlight", "capture"].includes(tool) && (
+                            <button
+                              className="text-button"
+                              onClick={() => setTool("move")}
+                            >
+                              완료
+                            </button>
+                          )}
                         </div>
                       )}
                       <div className="page-navigation">
@@ -1872,18 +1922,16 @@ export default function App({ pdfjs, createOcrWorker }) {
                         </button>
                       </div>
                     )}
-                    {tool !== "move" && (
-                      <button
-                        className="text-button"
-                        onClick={() => setTool("move")}
-                      >
-                        완료
-                      </button>
-                    )}
+                    {tool !== "move" &&
+                      !["pen", "highlight", "capture"].includes(tool) && (
+                        <button
+                          className="text-button"
+                          onClick={() => setTool("move")}
+                        >
+                          완료
+                        </button>
+                      )}
                   </div>
-                )}
-                {page && !slide && ["pen", "highlight"].includes(tool) && (
-                  <div className="main-drawing-options">{drawingOptions()}</div>
                 )}
                 <div
                   className="document-viewport"

@@ -275,6 +275,44 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       null,
       "imported PDF renders successfully",
     );
+    const titleBar = document.querySelector(".document-title-bar");
+    const pageStrip = document.querySelector(".page-strip");
+    assert.ok(
+      titleBar.compareDocumentPosition(pageStrip) &
+        window.Node.DOCUMENT_POSITION_FOLLOWING,
+      "document title precedes page information",
+    );
+    assert.equal(
+      document.querySelectorAll(".editor-workspace .document-name").length,
+      1,
+      "main title is shown once",
+    );
+    const pageActions = document.querySelector(".page-strip-actions");
+    assert.equal(pageActions.firstElementChild.textContent.trim(), "접기");
+    const foldCanvas = document.querySelector(".document-stage .page-canvas");
+    const selectedBeforeFold = [
+      ...document.querySelectorAll(".page-checkbox"),
+    ].map((box) => box.checked);
+    await click("접기");
+    assert.equal(document.querySelector("#page-previews").hidden, true);
+    assert.equal(
+      pageActions.firstElementChild.getAttribute("aria-expanded"),
+      "false",
+    );
+    assert.equal(
+      document.querySelector(".document-stage .page-canvas"),
+      foldCanvas,
+      "folding keeps the current document mounted",
+    );
+    await click("펼치기");
+    assert.equal(document.querySelector("#page-previews").hidden, false);
+    assert.deepEqual(
+      [...document.querySelectorAll(".page-checkbox")].map(
+        (box) => box.checked,
+      ),
+      selectedBeforeFold,
+      "folding preserves page selection",
+    );
     const zoomControls = document.querySelector(".document-zoom");
     const documentCanvas = document.querySelector(
       ".document-stage .page-canvas",
@@ -669,6 +707,12 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     const originalMainPreview = mainCanvas.toDataURL();
     assert.equal(document.querySelector(".presentation-mode"), null);
     assert.ok(document.querySelector(".main-drawing-options .color-palette"));
+    assert.ok(
+      document.querySelector(
+        ".document-controls .main-drawing-options .color-palette",
+      ),
+      "drawing colors share the same control row as tools",
+    );
     await mainGesture(
       [
         ["pointerdown", 0.2, 0.6],
