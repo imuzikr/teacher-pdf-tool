@@ -1462,13 +1462,13 @@ export default function App({ pdfjs, createOcrWorker }) {
                 if (!pages.length) return;
                 setModal({ type: "new" });
               }}
-              aria-label="My PDF 작업실"
+              aria-label="HS PDF 작업실"
             >
               <span className="brand-mark">
                 <FilePdf size={27} weight="bold" />
               </span>
               <span>
-                <b>My</b> PDF<small>TEACHER’S PDF STUDIO</small>
+                <b>HS</b> PDF<small>TEACHER’S PDF STUDIO</small>
               </span>
             </a>
             <div className="action-group">

@@ -299,8 +299,8 @@ export async function exportPdf(pages, options = {}) {
     }
     options.onProgress?.(index + 1, pages.length);
   }
-  output.setTitle("My PDF 편집 문서");
-  output.setProducer("My PDF");
+  output.setTitle("HS PDF 편집 문서");
+  output.setProducer("HS PDF");
   return output.save();
 }
 

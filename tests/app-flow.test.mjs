@@ -259,7 +259,7 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       null,
       "no horizontal button header remains",
     );
-    assert.match(actionPanel.querySelector(".brand").textContent, /My PDF/);
+    assert.match(actionPanel.querySelector(".brand").textContent, /HS PDF/);
 
     const importTestPdf = async () => {
       const input = document.querySelector("input[type=file]");
@@ -604,7 +604,7 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     await settle();
     await click("텍스트 복사");
     assert.match(copied, /Classroom Notes/);
-    assert.match(document.querySelector(".brand").textContent, /My PDF/);
+    assert.match(document.querySelector(".brand").textContent, /HS PDF/);
     await act(async () =>
       document.querySelectorAll(".page-checkbox")[1].click(),
     );
