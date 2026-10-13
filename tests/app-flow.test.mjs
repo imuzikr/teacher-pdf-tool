@@ -643,6 +643,87 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     );
     assert.equal(await inAct(async () => extractText(savedPages)), "");
     await result.document.destroy();
+    const mainCanvas = document.querySelector(
+      ".document-stage .annotation-canvas",
+    );
+    const mainRect = mainCanvas.getBoundingClientRect();
+    async function mainGesture(points, pointerId) {
+      await act(async () => {
+        for (const [type, x, y] of points) {
+          const e = new window.MouseEvent(type, {
+            bubbles: true,
+            clientX: mainRect.left + x * mainRect.width,
+            clientY: mainRect.top + y * mainRect.height,
+            button: 0,
+          });
+          Object.defineProperty(e, "pointerId", { value: pointerId });
+          mainCanvas.dispatchEvent(e);
+        }
+      });
+      await settle();
+    }
+    assert.ok(
+      document.querySelector('.document-zoom [aria-label="문서 필기 도구"]'),
+    );
+    await click("펜");
+    const originalMainPreview = mainCanvas.toDataURL();
+    assert.equal(document.querySelector(".presentation-mode"), null);
+    assert.ok(document.querySelector(".main-drawing-options .color-palette"));
+    await mainGesture(
+      [
+        ["pointerdown", 0.2, 0.6],
+        ["pointermove", 0.5, 0.6],
+        ["pointerup", 0.5, 0.6],
+      ],
+      80,
+    );
+    assert.ok(
+      mainCanvas.toDataURL() !== originalMainPreview,
+      "main view pen draws on the PDF",
+    );
+    await click("실행 취소");
+    assert.ok(mainCanvas.toDataURL() === originalMainPreview);
+    await click("형광펜");
+    assert.equal(
+      document
+        .querySelector('[aria-label="형광펜 직선 자"]')
+        .getAttribute("aria-pressed"),
+      "true",
+      "ruler is enabled by default",
+    );
+    await mainGesture(
+      [
+        ["pointerdown", 0.1, 0.7],
+        ["pointermove", 0.3, 0.4],
+        ["pointermove", 0.65, 0.7],
+        ["pointerup", 0.65, 0.7],
+      ],
+      81,
+    );
+    assert.ok(
+      mainCanvas.toDataURL() !== originalMainPreview,
+      "main view highlighter draws without starting slides",
+    );
+    await click("실행 취소");
+    assert.ok(mainCanvas.toDataURL() === originalMainPreview);
+    await click("캡처");
+    await mainGesture(
+      [
+        ["pointerdown", 0.1, 0.3],
+        ["pointermove", 0.6, 0.65],
+        ["pointerup", 0.6, 0.65],
+      ],
+      82,
+    );
+    for (let i = 0; i < 40 && document.querySelector(".busy-indicator"); i++)
+      await settle();
+    assert.equal(document.querySelector(".presentation-mode"), null);
+    assert.ok(
+      document.querySelector(".pinned-capture"),
+      "main view capture is shown without entering slide mode",
+    );
+    await click("캡처 닫기");
+    assert.equal(document.querySelector(".pinned-capture"), null);
     await click("슬라이드 재생");
     assert.ok(document.querySelector(".presentation-mode"));
     const zoomOverlay = document.querySelector(".canvas-zoom");
@@ -847,7 +928,6 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       "형광펜 직선 자",
       "ruler follows the sixth purple swatch",
     );
-    await click("형광펜 직선 자");
     assert.equal(
       document
         .querySelector('[aria-label="형광펜 직선 자"]')

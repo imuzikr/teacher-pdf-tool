@@ -199,7 +199,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   }, [shapeMenu]);
   const [color, setColor] = useState("#087f5b");
   const [size, setSize] = useState(0.004);
-  const [straightHighlight, setStraightHighlight] = useState(false);
+  const [straightHighlight, setStraightHighlight] = useState(true);
   const [fontSize, setFontSize] = useState(0.025);
   const [modal, setModal] = useState(null);
   const [compression, setCompression] = useState(150);
@@ -542,6 +542,8 @@ export default function App({ pdfjs, createOcrWorker }) {
     setDirty(false);
     setDraft(null);
     setSignature(null);
+    setCaptures([]);
+    setCaptureRect(null);
     setRegionMode("single");
     setRegionScope("all");
     setRegionSession(null);
@@ -1335,6 +1337,57 @@ export default function App({ pdfjs, createOcrWorker }) {
       : null;
   void historyVersion;
 
+  const drawingOptions = () => (
+    <div className="drawing-options">
+      <div
+        className="color-palette"
+        role="group"
+        aria-label={
+          tool === "highlight" ? "형광펜 색상 팔레트" : "필기 색상 팔레트"
+        }
+      >
+        {(tool === "highlight" ? highlightPalette : penPalette).map(
+          ([name, value]) => (
+            <button
+              key={value}
+              className="color-swatch"
+              style={{ background: value }}
+              aria-label={`${name} 색상`}
+              title={name}
+              aria-pressed={color === value}
+              onClick={() => {
+                setColor(value);
+                colorMemory.current[tool] = value;
+              }}
+            />
+          ),
+        )}
+        {tool === "highlight" && (
+          <button
+            className={`ruler-toggle ${straightHighlight ? "active" : ""}`}
+            aria-label="형광펜 직선 자"
+            title="직선 형광펜"
+            aria-pressed={straightHighlight}
+            onClick={() => setStraightHighlight((v) => !v)}
+          >
+            <Ruler size={22} />
+          </button>
+        )}
+      </div>
+      <label>
+        크기{" "}
+        <input
+          type="range"
+          aria-label="필기 크기"
+          min="0.002"
+          max="0.015"
+          step="0.001"
+          value={size}
+          onChange={(e) => setSize(Number(e.target.value))}
+        />
+      </label>
+    </div>
+  );
   return (
     <div
       ref={workspace}
@@ -1696,6 +1749,30 @@ export default function App({ pdfjs, createOcrWorker }) {
                           >
                             <CornersOut size={16} /> 화면에 맞춤
                           </button>
+                          <div
+                            className="main-ink-tools"
+                            role="group"
+                            aria-label="문서 필기 도구"
+                          >
+                            {[
+                              [PencilSimple, "펜", "pen"],
+                              [Highlighter, "형광펜", "highlight"],
+                              [CornersOut, "캡처", "capture"],
+                            ].map(([Icon, title, value]) => (
+                              <ToolButton
+                                key={value}
+                                icon={Icon}
+                                active={tool === value}
+                                aria-pressed={tool === value}
+                                disabled={!!busy}
+                                onClick={() =>
+                                  chooseTool(tool === value ? "move" : value)
+                                }
+                              >
+                                {title}
+                              </ToolButton>
+                            ))}
+                          </div>
                           <button
                             className="text-button"
                             onClick={() => startSlide("present")}
@@ -1751,6 +1828,15 @@ export default function App({ pdfjs, createOcrWorker }) {
                         <Signature size={16} />
                         <span>문서에서 서명을 넣을 위치를 클릭하세요.</span>
                       </>
+                    ) : ["pen", "highlight", "capture"].includes(tool) ? (
+                      <>
+                        <Info size={15} />
+                        <span>
+                          {tool === "capture"
+                            ? "캡처할 영역을 드래그하세요. 캡처 이미지를 이동하거나 크기를 조절할 수 있습니다."
+                            : "문서 위에 드래그해서 필기하세요. 색상과 굵기를 조절할 수 있습니다."}
+                        </span>
+                      </>
                     ) : (
                       <>
                         <Info size={15} />
@@ -1795,6 +1881,9 @@ export default function App({ pdfjs, createOcrWorker }) {
                       </button>
                     )}
                   </div>
+                )}
+                {page && !slide && ["pen", "highlight"].includes(tool) && (
+                  <div className="main-drawing-options">{drawingOptions()}</div>
                 )}
                 <div
                   className="document-viewport"
@@ -1991,59 +2080,8 @@ export default function App({ pdfjs, createOcrWorker }) {
                               ? "도형을 선택하고 문서 위에서 드래그하세요."
                               : "문서 위에 바로 필기하세요."}
               </span>
-              {["pen", "highlight", "text", "shape"].includes(tool) && (
-                <div className="drawing-options">
-                  <div
-                    className="color-palette"
-                    role="group"
-                    aria-label={
-                      tool === "highlight"
-                        ? "형광펜 색상 팔레트"
-                        : "필기 색상 팔레트"
-                    }
-                  >
-                    {(tool === "highlight" ? highlightPalette : penPalette).map(
-                      ([name, value]) => (
-                        <button
-                          key={value}
-                          className="color-swatch"
-                          style={{ background: value }}
-                          aria-label={`${name} 색상`}
-                          title={name}
-                          aria-pressed={color === value}
-                          onClick={() => {
-                            setColor(value);
-                            colorMemory.current[tool] = value;
-                          }}
-                        />
-                      ),
-                    )}
-                    {tool === "highlight" && (
-                      <button
-                        className={`ruler-toggle ${straightHighlight ? "active" : ""}`}
-                        aria-label="형광펜 직선 자"
-                        title="직선 형광펜"
-                        aria-pressed={straightHighlight}
-                        onClick={() => setStraightHighlight((v) => !v)}
-                      >
-                        <Ruler size={22} />
-                      </button>
-                    )}
-                  </div>
-                  <label>
-                    크기{" "}
-                    <input
-                      type="range"
-                      aria-label="필기 크기"
-                      min="0.002"
-                      max="0.015"
-                      step="0.001"
-                      value={size}
-                      onChange={(e) => setSize(Number(e.target.value))}
-                    />
-                  </label>
-                </div>
-              )}
+              {["pen", "highlight", "text", "shape"].includes(tool) &&
+                drawingOptions()}
             </div>
           )}
           <footer className="slide-toolbar">
@@ -2292,7 +2330,7 @@ export default function App({ pdfjs, createOcrWorker }) {
         </footer>
       )}
 
-      {slide &&
+      {page &&
         tool !== "problem-capture" &&
         captures.map((capture) => (
           <PinnedCapture

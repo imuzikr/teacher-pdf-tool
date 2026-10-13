@@ -2651,3 +2651,29 @@ input[type="radio"] {
 .capture-drawing-area {
   isolation: isolate;
 }
+
+.document-zoom {
+  flex-wrap: wrap;
+}
+.main-ink-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.main-ink-tools .tool-button {
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 8px;
+  font-size: 11px;
+}
+.main-ink-tools .tool-button svg {
+  width: 16px;
+  height: 16px;
+}
+.main-drawing-options {
+  padding: 7px 25px 10px;
+  flex-shrink: 0;
+}
+.main-drawing-options .drawing-options {
+  flex-wrap: wrap;
+}
