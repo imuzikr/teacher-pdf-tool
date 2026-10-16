@@ -834,6 +834,98 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     clipboardBlocked = false;
     await click("캡처 이미지 복사");
     await click("캡처 닫기");
+    await click("동영상 녹화");
+    assert.match(
+      document.querySelector('[role="dialog"]').textContent,
+      /탭, 창 또는 전체 화면/,
+    );
+    const micOption = document.querySelector(".recording-option input");
+    assert.equal(micOption.checked, false);
+    await act(async () => micOption.click());
+    assert.equal(micOption.checked, true);
+    const mediaCalls = [];
+    const mediaTracks = [];
+    const makeTrack = (kind) => {
+      const track = {
+        kind,
+        readyState: "live",
+        stop() {
+          this.readyState = "ended";
+        },
+        addEventListener() {},
+      };
+      mediaTracks.push(track);
+      return track;
+    };
+    const oldRecorder = globalThis.MediaRecorder;
+    const oldStream = globalThis.MediaStream;
+    const oldDevices = navigator.mediaDevices;
+    class RecordingStream {
+      constructor(tracks) {
+        this.tracks = tracks;
+      }
+      getTracks() {
+        return this.tracks;
+      }
+      getVideoTracks() {
+        return this.tracks.filter((t) => t.kind === "video");
+      }
+      getAudioTracks() {
+        return this.tracks.filter((t) => t.kind === "audio");
+      }
+    }
+    globalThis.MediaStream = RecordingStream;
+    globalThis.MediaRecorder = class {
+      static isTypeSupported(type) {
+        return type === "video/webm";
+      }
+      constructor(stream, options) {
+        this.state = "inactive";
+        this.mimeType = options.mimeType;
+        assert.equal(stream.getTracks().length, 2);
+      }
+      start() {
+        this.state = "recording";
+      }
+      stop() {
+        this.state = "inactive";
+        queueMicrotask(() => {
+          this.ondataavailable({ data: new Blob(["video"]) });
+          this.onstop();
+        });
+      }
+    };
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getDisplayMedia: async () => {
+          mediaCalls.push("screen");
+          return new RecordingStream([makeTrack("video")]);
+        },
+        getUserMedia: async () => {
+          mediaCalls.push("microphone");
+          return new RecordingStream([makeTrack("audio")]);
+        },
+      },
+    });
+    await click("녹화 시작");
+    assert.deepEqual(mediaCalls, ["screen", "microphone"]);
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.ok(document.querySelector(".recording-indicator"));
+    await click("녹화 종료");
+    assert.equal(document.querySelector(".recording-indicator"), null);
+    assert.equal(downloaded.type, "video/webm");
+    assert.equal(await downloaded.text(), "video");
+    assert.ok(document.querySelector('video[aria-label="녹화 영상 미리보기"]'));
+    assert.ok(mediaTracks.every((track) => track.readyState === "ended"));
+    await click("동영상 다시 다운로드");
+    await click("닫기");
+    globalThis.MediaRecorder = oldRecorder;
+    globalThis.MediaStream = oldStream;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: oldDevices,
+    });
     await click("슬라이드 재생");
     assert.ok(document.querySelector(".presentation-mode"));
     const zoomOverlay = document.querySelector(".canvas-zoom");

@@ -2746,3 +2746,43 @@ input[type="radio"] {
     padding: 8px 10px;
   }
 }
+
+.recording-indicator {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border: 1px solid #b9cfc1;
+  border-radius: 24px;
+  background: #fffffff2;
+  color: #203d30;
+  box-shadow: 0 3px 20px #0003;
+}
+.recording-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #db3030;
+}
+.recording-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0 8px;
+}
+.recording-help {
+  font-size: 13px;
+  color: #667d70;
+}
+.recording-result video {
+  display: block;
+  width: 100%;
+  max-height: 35vh;
+  margin: 16px 0;
+  background: #142c21;
+}

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  VideoCamera,
   FilePdf,
   FilePlus,
   FolderPlus,
@@ -40,6 +41,7 @@ import { ToolButton, Modal, PageCanvas, SignaturePad } from "./components.jsx";
 import PdfAssembler from "./PdfAssembler.jsx";
 import { shapeOptions, shapePoints, hitShape, resizeShape } from "./shapes.js";
 import PinnedCapture from "./PinnedCapture.jsx";
+import ScreenRecorder from "./ScreenRecorder.jsx";
 import { copyCaptureImage, captureWithWriting } from "./capture-clipboard.js";
 import {
   beginInkGesture,
@@ -157,6 +159,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   const [zoom, setZoom] = useState(100);
   const [previewsCollapsed, setPreviewsCollapsed] = useState(false);
   const [slide, setSlide] = useState(false);
+  const [recorderOpen, setRecorderOpen] = useState(false);
   const [presenting, setPresenting] = useState(false);
   const [captures, setCaptures] = useState([]);
   const [captureRect, setCaptureRect] = useState(null);
@@ -1247,6 +1250,7 @@ export default function App({ pdfjs, createOcrWorker }) {
     const key = (e) => {
       if (
         modal ||
+        document.querySelector('[role="dialog"]') ||
         operation.current ||
         ["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)
       )
@@ -1828,6 +1832,12 @@ export default function App({ pdfjs, createOcrWorker }) {
                                 {title}
                               </ToolButton>
                             ))}
+                            <ToolButton
+                              icon={VideoCamera}
+                              onClick={() => setRecorderOpen(true)}
+                            >
+                              동영상 녹화
+                            </ToolButton>
                           </div>
                           {["pen", "highlight"].includes(tool) && (
                             <div className="main-drawing-options">
@@ -2293,6 +2303,12 @@ export default function App({ pdfjs, createOcrWorker }) {
                   >
                     캡처 모드
                   </ToolButton>
+                  <ToolButton
+                    icon={VideoCamera}
+                    onClick={() => setRecorderOpen(true)}
+                  >
+                    동영상 녹화
+                  </ToolButton>
                 </>
               )}
               {!presenting && !problemSession.current && (
@@ -2490,6 +2506,10 @@ export default function App({ pdfjs, createOcrWorker }) {
         </div>
       )}
 
+      <ScreenRecorder
+        open={recorderOpen}
+        onClose={() => setRecorderOpen(false)}
+      />
       {modal && (
         <Modal
           title={

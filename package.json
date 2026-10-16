@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node tests/pdf-engine.test.mjs && node tests/bulk-redaction.test.mjs && node tests/app-flow.test.mjs && npm run test:ocr",
+    "test": "node tests/screen-recording.test.mjs && node tests/pdf-engine.test.mjs && node tests/bulk-redaction.test.mjs && node tests/app-flow.test.mjs && npm run test:ocr",
     "postinstall": "node scripts/prepare-assets.mjs",
     "test:ocr": "node tests/ocr-check.mjs"
   },
