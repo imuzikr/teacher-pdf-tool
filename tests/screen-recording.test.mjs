@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { startScreenRecording } from "../src/screen-recording.js";
+import {
+  startScreenRecording,
+  createRegionStream,
+} from "../src/screen-recording.js";
 
 function fixture({
   micError = false,
@@ -80,10 +83,11 @@ function fixture({
   };
   const results = [],
     errors = [];
-  const start = (microphone) =>
+  const start = (microphone, selectRegion) =>
     startScreenRecording(
       {
         microphone,
+        selectRegion,
         onComplete: (blob) => results.push(blob),
         onError: (error) => errors.push(error),
       },
@@ -167,4 +171,116 @@ test("recorder failure salvages available data and releases all tracks", async (
   assert.equal(f.results.length, 1);
   assert.equal(f.audio.readyState, "ended");
   assert.equal(f.video.readyState, "ended");
+});
+
+test("region selection cancellation or sharing stop releases the source before requesting microphone", async () => {
+  const cancelled = fixture();
+  await assert.rejects(
+    cancelled.start(true, async () => {
+      throw new Error("cancelled");
+    }),
+    /cancelled/,
+  );
+  assert.equal(cancelled.video.readyState, "ended");
+  assert.deepEqual(
+    cancelled.calls.map((c) => c[0]),
+    ["display"],
+  );
+  const ended = fixture();
+  const pending = ended.start(true, () => new Promise(() => {}));
+  await tick();
+  ended.video.ended();
+  await assert.rejects(pending, /공유가 종료/);
+  assert.equal(ended.video.readyState, "ended");
+  assert.equal(ended.recorder, undefined);
+});
+
+test("region output contains only selected pixels, updates moving frames, and scales resized sources", async () => {
+  const { createCanvas } = await import("@napi-rs/canvas");
+  const source = createCanvas(400, 200);
+  const output = createCanvas(1, 1);
+  let nextFrame,
+    cancelled,
+    paused = false;
+  Object.defineProperty(source, "videoWidth", { get: () => source.width });
+  Object.defineProperty(source, "videoHeight", { get: () => source.height });
+  source.play = async () => {};
+  source.pause = () => {
+    paused = true;
+  };
+  source.requestVideoFrameCallback = (callback) => {
+    nextFrame = callback;
+    return 42;
+  };
+  source.cancelVideoFrameCallback = (id) => {
+    cancelled = id;
+  };
+  output.captureStream = (fps) => {
+    assert.equal(fps, 30);
+    return { cropped: true };
+  };
+  const ctx = source.getContext("2d");
+  ctx.fillStyle = "red";
+  ctx.fillRect(0, 0, 200, 200);
+  ctx.fillStyle = "blue";
+  ctx.fillRect(200, 0, 200, 200);
+  const display = {};
+  const env = {
+    document: { createElement: (tag) => (tag === "video" ? source : output) },
+  };
+  const capture = await createRegionStream(
+    display,
+    { x: 0.5, y: 0, width: 0.5, height: 1 },
+    env,
+  );
+  assert.equal(capture.stream.cropped, true);
+  assert.equal(output.width, 200);
+  assert.equal(output.height, 200);
+  assert.deepEqual(
+    [...output.getContext("2d").getImageData(0, 0, 1, 1).data],
+    [0, 0, 255, 255],
+  );
+  source.width = 800;
+  source.height = 400;
+  const resized = source.getContext("2d");
+  resized.fillStyle = "red";
+  resized.fillRect(0, 0, 400, 400);
+  resized.fillStyle = "#00ff00";
+  resized.fillRect(400, 0, 400, 400);
+  nextFrame();
+  assert.equal(output.width, 200);
+  assert.deepEqual(
+    [...output.getContext("2d").getImageData(199, 199, 1, 1).data],
+    [0, 255, 0, 255],
+  );
+  capture.dispose();
+  assert.equal(paused, true);
+  assert.equal(cancelled, 42);
+  assert.equal(source.srcObject, null);
+});
+
+test("invalid or unavailable region capture fails without leaving video playback running", async () => {
+  await assert.rejects(
+    createRegionStream({}, { x: 0.9, y: 0, width: 0.2, height: 1 }, {}),
+    /다시 지정/,
+  );
+  let paused = false;
+  const video = {
+    videoWidth: 100,
+    videoHeight: 100,
+    play: async () => {},
+    pause() {
+      paused = true;
+    },
+  };
+  await assert.rejects(
+    createRegionStream(
+      {},
+      { x: 0, y: 0, width: 0.5, height: 0.5 },
+      { document: { createElement: (tag) => (tag === "video" ? video : {}) } },
+    ),
+    /영역 녹화를 지원하지/,
+  );
+  assert.equal(paused, true);
+  assert.equal(video.srcObject, null);
 });

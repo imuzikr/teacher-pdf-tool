@@ -5,6 +5,10 @@ import { startScreenRecording } from "./screen-recording.js";
 
 export default function ScreenRecorder({ open, onClose }) {
   const [microphone, setMicrophone] = useState(false);
+  const [mode, setMode] = useState("full");
+  const [preview, setPreview] = useState(null);
+  const [region, setRegion] = useState(null);
+  const selection = useRef(null);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
@@ -17,6 +21,9 @@ export default function ScreenRecorder({ open, onClose }) {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      selection.current?.reject(
+        new DOMException("영역 선택 취소", "AbortError"),
+      );
       session.current?.dispose();
       if (resultUrl.current) URL.revokeObjectURL(resultUrl.current);
     };
@@ -52,6 +59,17 @@ export default function ScreenRecorder({ open, onClose }) {
     try {
       const active = await startScreenRecording({
         microphone,
+        selectRegion:
+          mode === "region"
+            ? (stream) => {
+                setStatus("selecting");
+                setRegion(null);
+                setPreview(stream);
+                return new Promise((resolve, reject) => {
+                  selection.current = { resolve, reject };
+                });
+              }
+            : undefined,
         onError: (error) => {
           if (mounted.current) {
             setError(error.message);
@@ -84,6 +102,8 @@ export default function ScreenRecorder({ open, onClose }) {
       onClose();
     } catch (error) {
       if (!mounted.current) return;
+      setPreview(null);
+      selection.current = null;
       setStatus("idle");
       setError(
         error.name === "NotAllowedError" || error.name === "AbortError"
@@ -96,7 +116,21 @@ export default function ScreenRecorder({ open, onClose }) {
     setStatus("stopping");
     session.current?.stop();
   };
+  const confirmRegion = () => {
+    if (!region) return;
+    setStatus("starting");
+    setPreview(null);
+    selection.current?.resolve(region);
+    selection.current = null;
+  };
   const close = () => {
+    if (selection.current) {
+      selection.current.reject(
+        new DOMException("영역 선택 취소", "AbortError"),
+      );
+      selection.current = null;
+      setPreview(null);
+    }
     setShowResult(false);
     onClose();
   };
@@ -124,7 +158,19 @@ export default function ScreenRecorder({ open, onClose }) {
           busy={status === "starting" || status === "stopping"}
         >
           {error && <p role="alert">{error}</p>}
-          {active ? (
+          {status === "selecting" && preview ? (
+            <>
+              <p>
+                공유 화면에서 녹화할 사각형을 드래그하세요. 선택한 영역 안의
+                움직임만 녹화합니다.
+              </p>
+              <RecordingRegionPicker
+                stream={preview}
+                onSelect={setRegion}
+                onError={(error) => selection.current?.reject(error)}
+              />
+            </>
+          ) : active ? (
             <p>
               화면을 녹화하고 있습니다. 녹화를 종료하면 동영상 파일로
               다운로드합니다.
@@ -132,9 +178,35 @@ export default function ScreenRecorder({ open, onClose }) {
           ) : (
             <>
               <p>
-                브라우저에서 녹화할 탭, 창 또는 전체 화면을 선택하세요. 종료하면
-                동영상 파일로 다운로드합니다.
+                녹화 방식을 선택하세요. 브라우저에서 공유할 화면을 고른 뒤, 영역
+                지정 방식에서는 미리보기에 녹화할 사각형을 드래그합니다.
               </p>
+              <fieldset
+                className="recording-modes"
+                disabled={status === "starting"}
+              >
+                <legend>녹화 방식</legend>
+                <label>
+                  <input
+                    type="radio"
+                    name="recording-mode"
+                    value="full"
+                    checked={mode === "full"}
+                    onChange={() => setMode("full")}
+                  />{" "}
+                  전체 화면
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="recording-mode"
+                    value="region"
+                    checked={mode === "region"}
+                    onChange={() => setMode("region")}
+                  />{" "}
+                  영역 지정
+                </label>
+              </fieldset>
               <label className="recording-option">
                 <input
                   type="checkbox"
@@ -150,7 +222,7 @@ export default function ScreenRecorder({ open, onClose }) {
               </p>
             </>
           )}
-          {result && (
+          {result && status === "idle" && (
             <div className="recording-result">
               <video
                 controls
@@ -172,7 +244,16 @@ export default function ScreenRecorder({ open, onClose }) {
             >
               닫기
             </ToolButton>
-            {active ? (
+            {status === "selecting" ? (
+              <ToolButton
+                className="primary"
+                icon={VideoCamera}
+                disabled={!region}
+                onClick={confirmRegion}
+              >
+                선택 영역 녹화 시작
+              </ToolButton>
+            ) : active ? (
               <ToolButton
                 icon={Stop}
                 className="primary"
@@ -194,6 +275,104 @@ export default function ScreenRecorder({ open, onClose }) {
           </div>
         </Modal>
       )}
+    </>
+  );
+}
+
+function RecordingRegionPicker({ stream, onSelect, onError }) {
+  const video = useRef(null);
+  const origin = useRef(null);
+  const [rect, setRect] = useState(null);
+  const [ratio, setRatio] = useState(16 / 9);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const element = video.current;
+    element.srcObject = stream;
+    element.play().catch(onError);
+    return () => {
+      element.pause();
+      element.srcObject = null;
+    };
+  }, [stream]);
+  const point = (event) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)),
+      y: Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height)),
+    };
+  };
+  const update = (event) => {
+    if (!origin.current) return null;
+    const p = point(event),
+      start = origin.current;
+    const next = {
+      x: Math.min(p.x, start.x),
+      y: Math.min(p.y, start.y),
+      width: Math.abs(p.x - start.x),
+      height: Math.abs(p.y - start.y),
+    };
+    setRect(next);
+    return next;
+  };
+  return (
+    <>
+      {!ready && <p role="status">공유 화면을 불러오는 중…</p>}
+      <div
+        className="recording-region-picker"
+        aria-label="녹화 영역 지정 미리보기"
+        style={{ aspectRatio: ratio, width: `min(100%, ${48 * ratio}vh)` }}
+        onPointerDown={(event) => {
+          if (!ready || event.button !== 0) return;
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          origin.current = point(event);
+          setRect(null);
+          onSelect(null);
+        }}
+        onPointerMove={update}
+        onPointerUp={(event) => {
+          if (!origin.current) return;
+          const next = update(event);
+          origin.current = null;
+          if (next.width >= 0.005 && next.height >= 0.005) onSelect(next);
+          else {
+            setRect(null);
+            onSelect(null);
+          }
+        }}
+        onPointerCancel={() => {
+          origin.current = null;
+          setRect(null);
+          onSelect(null);
+        }}
+      >
+        <video
+          ref={video}
+          muted
+          playsInline
+          onLoadedMetadata={() => {
+            if (video.current.videoWidth && video.current.videoHeight) {
+              setRatio(video.current.videoWidth / video.current.videoHeight);
+              setReady(true);
+            }
+          }}
+        />
+        {rect && (
+          <div
+            className="recording-region-rect"
+            style={{
+              left: `${rect.x * 100}%`,
+              top: `${rect.y * 100}%`,
+              width: `${rect.width * 100}%`,
+              height: `${rect.height * 100}%`,
+            }}
+          />
+        )}
+      </div>
+      <p className="recording-help">
+        다시 드래그하면 영역을 바꿀 수 있습니다. 녹화 중에는 선택한 영역이
+        고정됩니다.
+      </p>
     </>
   );
 }

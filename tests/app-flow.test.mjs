@@ -837,7 +837,7 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     await click("동영상 녹화");
     assert.match(
       document.querySelector('[role="dialog"]').textContent,
-      /탭, 창 또는 전체 화면/,
+      /녹화 방식을 선택/,
     );
     const micOption = document.querySelector(".recording-option input");
     assert.equal(micOption.checked, false);
@@ -919,7 +919,66 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     assert.ok(document.querySelector('video[aria-label="녹화 영상 미리보기"]'));
     assert.ok(mediaTracks.every((track) => track.readyState === "ended"));
     await click("동영상 다시 다운로드");
+    assert.equal(
+      document.querySelectorAll('.recording-modes input[type="radio"]').length,
+      2,
+    );
+    await act(async () =>
+      document.querySelector('.recording-modes input[value="region"]').click(),
+    );
+    const oldPlay = window.HTMLMediaElement.prototype.play;
+    const oldPause = window.HTMLMediaElement.prototype.pause;
+    window.HTMLMediaElement.prototype.play = async () => {};
+    window.HTMLMediaElement.prototype.pause = () => {};
+    await click("녹화 시작");
+    const picker = document.querySelector(".recording-region-picker");
+    assert.ok(picker);
+    const previewVideo = picker.querySelector("video");
+    Object.defineProperty(previewVideo, "videoWidth", { value: 800 });
+    Object.defineProperty(previewVideo, "videoHeight", { value: 400 });
+    await act(async () =>
+      previewVideo.dispatchEvent(new window.Event("loadedmetadata")),
+    );
+    const confirm = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent === "선택 영역 녹화 시작",
+    );
+    assert.equal(confirm.disabled, true);
+    picker.getBoundingClientRect = () => ({
+      left: 20,
+      top: 40,
+      width: 800,
+      height: 400,
+    });
+    await act(async () => {
+      for (const [type, x, y] of [
+        ["pointerdown", 620, 340],
+        ["pointermove", 220, 140],
+        ["pointerup", 220, 140],
+      ])
+        picker.dispatchEvent(
+          new window.MouseEvent(type, {
+            bubbles: true,
+            button: 0,
+            clientX: x,
+            clientY: y,
+          }),
+        );
+    });
+    assert.equal(confirm.disabled, false);
+    const selectedRect = picker.querySelector(".recording-region-rect");
+    assert.equal(selectedRect.style.left, "25%");
+    assert.equal(selectedRect.style.top, "25%");
+    assert.equal(selectedRect.style.width, "50%");
+    assert.deepEqual(
+      mediaCalls,
+      ["screen", "microphone", "screen"],
+      "no microphone before region confirmation",
+    );
     await click("닫기");
+    assert.equal(mediaTracks.at(-1).readyState, "ended");
+    assert.equal(document.querySelector(".recording-indicator"), null);
+    window.HTMLMediaElement.prototype.play = oldPlay;
+    window.HTMLMediaElement.prototype.pause = oldPause;
     globalThis.MediaRecorder = oldRecorder;
     globalThis.MediaStream = oldStream;
     Object.defineProperty(navigator, "mediaDevices", {

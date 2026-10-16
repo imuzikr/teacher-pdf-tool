@@ -2786,3 +2786,39 @@ input[type="radio"] {
   margin: 16px 0;
   background: #142c21;
 }
+
+.recording-modes {
+  display: flex;
+  gap: 24px;
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid #b9cfc1;
+  border-radius: 12px;
+}
+.recording-modes label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.recording-region-picker {
+  position: relative;
+  margin: 16px auto;
+  overflow: hidden;
+  background: #142c21;
+  touch-action: none;
+  user-select: none;
+  cursor: crosshair;
+}
+.recording-region-picker video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.recording-region-rect {
+  position: absolute;
+  border: 2px solid #00dc97;
+  background: #00dc971a;
+  box-shadow: 0 0 0 9999px #0007;
+  pointer-events: none;
+}

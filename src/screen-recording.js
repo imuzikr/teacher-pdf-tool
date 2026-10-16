@@ -1,7 +1,7 @@
 // All media stays in the browser. Only the video and optional microphone track
 // selected for this session are recorded.
 export async function startScreenRecording(
-  { microphone = false, onComplete, onError },
+  { microphone = false, selectRegion, onComplete, onError },
   env = globalThis,
 ) {
   const devices = env.navigator?.mediaDevices;
@@ -11,12 +11,15 @@ export async function startScreenRecording(
     );
   const streams = [];
   let recorder;
+  let crop;
   let disposed = false;
   let completed = false;
-  const cleanup = () =>
+  const cleanup = () => {
+    crop?.dispose();
     streams.forEach((stream) =>
       stream.getTracks().forEach((track) => track.stop()),
     );
+  };
   const stop = () => {
     if (recorder?.state !== "inactive") recorder?.stop();
   };
@@ -29,7 +32,25 @@ export async function startScreenRecording(
     streams.push(display);
     const video = display.getVideoTracks()[0];
     if (!video) throw new Error("녹화할 화면을 선택하지 못했습니다.");
-    const tracks = [video];
+    let region;
+    if (selectRegion) {
+      let ended;
+      try {
+        region = await Promise.race([
+          selectRegion(display),
+          new Promise((_, reject) => {
+            ended = () =>
+              reject(new Error("영역 선택 중 화면 공유가 종료되었습니다."));
+            video.addEventListener("ended", ended, { once: true });
+          }),
+        ]);
+      } finally {
+        video.removeEventListener?.("ended", ended);
+      }
+      crop = await createRegionStream(display, region, env);
+      streams.push(crop.stream);
+    }
+    const tracks = [crop ? crop.stream.getVideoTracks()[0] : video];
     if (microphone) {
       if (!devices.getUserMedia)
         throw new Error("이 브라우저에서는 마이크를 사용할 수 없습니다.");
@@ -91,6 +112,71 @@ export async function startScreenRecording(
     };
   } catch (error) {
     cleanup();
+    throw error;
+  }
+}
+
+// Keep output dimensions fixed while scaling the chosen relative rectangle if
+// the source window changes resolution during recording.
+export async function createRegionStream(display, region, env = globalThis) {
+  if (
+    !region ||
+    ![region.x, region.y, region.width, region.height].every(Number.isFinite) ||
+    region.x < 0 ||
+    region.y < 0 ||
+    region.width <= 0 ||
+    region.height <= 0 ||
+    region.x + region.width > 1.000001 ||
+    region.y + region.height > 1.000001
+  )
+    throw new Error("녹화할 영역을 다시 지정해 주세요.");
+  const video = env.document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = display;
+  let frame;
+  let timer;
+  let disposed = false;
+  const dispose = () => {
+    disposed = true;
+    if (frame !== undefined) video.cancelVideoFrameCallback?.(frame);
+    if (timer !== undefined) env.clearTimeout(timer);
+    video.pause();
+    video.srcObject = null;
+  };
+  try {
+    await video.play();
+    if (!video.videoWidth || !video.videoHeight)
+      throw new Error("공유 화면을 읽지 못했습니다. 다시 선택해 주세요.");
+    const canvas = env.document.createElement("canvas");
+    canvas.width = Math.max(2, Math.round(video.videoWidth * region.width));
+    canvas.height = Math.max(2, Math.round(video.videoHeight * region.height));
+    if (!canvas.captureStream)
+      throw new Error(
+        "이 브라우저는 영역 녹화를 지원하지 않습니다. 데스크톱 Chrome 또는 Edge를 사용해 주세요.",
+      );
+    const context = canvas.getContext("2d", { alpha: false });
+    const paint = () => {
+      if (disposed) return;
+      context.drawImage(
+        video,
+        region.x * video.videoWidth,
+        region.y * video.videoHeight,
+        region.width * video.videoWidth,
+        region.height * video.videoHeight,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
+      if (video.requestVideoFrameCallback)
+        frame = video.requestVideoFrameCallback(paint);
+      else timer = env.setTimeout(paint, 1000 / 30);
+    };
+    paint();
+    return { stream: canvas.captureStream(30), dispose };
+  } catch (error) {
+    dispose();
     throw error;
   }
 }
