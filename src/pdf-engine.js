@@ -5,10 +5,18 @@ export const normalizeRotation = (value) => ((value % 360) + 360) % 360;
 
 export async function loadSource(bytes, name, pdfjs) {
   const data = new Uint8Array(bytes);
-  const document = await pdfjs.getDocument({
+  const loadingTask = pdfjs.getDocument({
     data: data.slice(),
     isEvalSupported: false,
-  }).promise;
+  });
+  let document;
+  try {
+    document = await loadingTask.promise;
+  } catch (error) {
+    // Release the worker-side document of a corrupt or password-protected file.
+    loadingTask.destroy().catch(() => {});
+    throw error;
+  }
   // PDF.js 5.4 shares PagesMapper across open documents. Loading a shorter
   // document shrinks its global page limit; restore it before each request.
   // Check against this document's own count so a larger shared limit never
@@ -96,20 +104,32 @@ export function applyRedaction(pages, reference, annotation, targetIds) {
   });
 }
 
+// Small LRU of decoded signature images, keyed by data URL. Failed loads are
+// evicted so a transient decode error does not break the signature for good.
+const IMAGE_CACHE_LIMIT = 8;
 const imageCache = new Map();
+export function clearImageCache() {
+  imageCache.clear();
+}
 async function getImage(url) {
-  if (!imageCache.has(url)) {
-    imageCache.set(
-      url,
-      new Promise((resolve, reject) => {
-        const image = new Image();
-        image.onload = () => resolve(image);
-        image.onerror = reject;
-        image.src = url;
-      }),
-    );
+  let entry = imageCache.get(url);
+  if (entry) {
+    imageCache.delete(url);
+  } else {
+    entry = new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("서명 이미지를 불러오지 못했습니다."));
+      image.src = url;
+    });
+    entry.catch(() => {
+      if (imageCache.get(url) === entry) imageCache.delete(url);
+    });
   }
-  return imageCache.get(url);
+  imageCache.set(url, entry);
+  while (imageCache.size > IMAGE_CACHE_LIMIT)
+    imageCache.delete(imageCache.keys().next().value);
+  return entry;
 }
 
 export async function drawAnnotations(
@@ -235,11 +255,17 @@ export async function renderPage(
   const canvas = canvasFactory();
   canvas.width = Math.ceil(viewport.width);
   canvas.height = Math.ceil(viewport.height);
-  await original.render({
-    canvasContext: canvas.getContext("2d"),
-    viewport,
-    background: "#ffffff",
-  }).promise;
+  try {
+    await original.render({
+      canvasContext: canvas.getContext("2d"),
+      viewport,
+      background: "#ffffff",
+    }).promise;
+  } finally {
+    // One-off high-resolution renders (export, capture, OCR) otherwise leave
+    // their decoded resources cached on the page for the life of the document.
+    original.cleanup();
+  }
   return canvas;
 }
 
@@ -324,6 +350,7 @@ export async function extractText(pages) {
     }
     const original = await page.source.document.getPage(page.index + 1);
     const content = await original.getTextContent();
+    original.cleanup();
     sections.push(
       content.items
         .map((item) => item.str + (item.hasEOL ? "\n" : " "))

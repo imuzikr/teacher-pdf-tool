@@ -59,6 +59,7 @@ import {
   loadSource,
   sourcePages,
   exportPdf,
+  clearImageCache,
   extractText,
   applyRedaction,
   downloadPdf,
@@ -573,6 +574,7 @@ export default function App({ pdfjs, createOcrWorker }) {
     for (const source of sources.current.values())
       source.document.destroy().catch(() => {});
     sources.current.clear();
+    clearImageCache();
   };
   const finishSlide = () => {
     slideSession.current = null;
@@ -1619,7 +1621,7 @@ export default function App({ pdfjs, createOcrWorker }) {
               <ToolButton
                 icon={Presentation}
                 disabled={!page || !!busy}
-                onClick={startSlide}
+                onClick={() => startSlide("slide")}
               >
                 슬라이드 재생
               </ToolButton>
