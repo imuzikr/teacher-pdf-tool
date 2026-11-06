@@ -1,4 +1,4 @@
-import { PDFDocument, degrees } from "pdf-lib";
+import { PDFDocument, EncryptedPDFError, degrees } from "pdf-lib";
 
 export const uid = () => crypto.randomUUID();
 export const normalizeRotation = (value) => ((value % 360) + 360) % 360;
@@ -251,9 +251,27 @@ export async function exportPdf(pages, options = {}) {
   );
   const rasterAll = Boolean(options.dpi || hasRedaction);
   const documents = new Map();
+  // Owner-password (permission-restricted) PDFs open in pdf.js without a
+  // prompt, but pdf-lib cannot copy their encrypted pages. Such pages are
+  // rasterized instead of failing the whole save. null marks those sources.
+  const sourceDocument = async (source) => {
+    if (!documents.has(source.id)) {
+      try {
+        documents.set(source.id, await PDFDocument.load(source.bytes));
+      } catch (error) {
+        if (!(error instanceof EncryptedPDFError)) throw error;
+        documents.set(source.id, null);
+      }
+    }
+    return documents.get(source.id);
+  };
   for (let index = 0; index < pages.length; index++) {
     const page = pages[index];
-    if (rasterAll || page.annotations.length) {
+    const copyable =
+      !rasterAll && !page.annotations.length
+        ? await sourceDocument(page.source)
+        : null;
+    if (!copyable) {
       const size = rotatedSize(page);
       const scale = (options.dpi || 150) / 72;
       // Bound working canvas memory for large format PDFs.
@@ -283,15 +301,7 @@ export async function exportPdf(pages, options = {}) {
       });
       canvas.width = canvas.height = 1;
     } else {
-      if (!documents.has(page.source.id)) {
-        documents.set(
-          page.source.id,
-          await PDFDocument.load(page.source.bytes),
-        );
-      }
-      const [copied] = await output.copyPages(documents.get(page.source.id), [
-        page.index,
-      ]);
+      const [copied] = await output.copyPages(copyable, [page.index]);
       copied.setRotation(
         degrees(normalizeRotation(page.baseRotation + page.rotation)),
       );

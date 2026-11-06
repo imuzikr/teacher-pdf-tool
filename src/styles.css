@@ -2825,3 +2825,7 @@ input[type="radio"] {
   box-shadow: 0 0 0 9999px #0007;
   pointer-events: none;
 }
+.assembly-orphan {
+  color: #a3361f;
+  font-weight: 600;
+}

@@ -48,6 +48,7 @@ export default function PdfAssembler({
   useDragAutoScroll(root, dragging, busy);
   const groups = [...new Set(pages.map((page) => page.source))];
   const draftPages = resolveAssemblyPages(entries, pages);
+  const livePageIds = new Set(pages.map((page) => page.id));
   const count = pages.filter((page) => selected.has(page.id)).length;
   const add = (ids) => {
     if (!busy && ids.size) onChange(addAssemblyPages(entries, pages, ids));
@@ -298,6 +299,14 @@ export default function PdfAssembler({
                   {entry.page.source.name}
                 </small>
                 <small>원본 {entry.page.index + 1}쪽</small>
+                {!livePageIds.has(entry.page.id) && (
+                  <small
+                    className="assembly-orphan"
+                    title="원래 문서에서 삭제한 페이지입니다. 삭제 이후의 편집과 가리기는 반영되지 않습니다."
+                  >
+                    원본에서 삭제됨
+                  </small>
+                )}
                 <div className="assembly-page-actions">
                   <button
                     className="icon-button"

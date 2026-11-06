@@ -240,6 +240,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   const upload = useRef(null);
   const workspace = useRef(null);
   const stage = useRef(null);
+  const workGeneration = useRef(0);
   const draggingPage = useRef(null);
   const operation = useRef(false);
   const pagesRef = useRef(pages);
@@ -268,7 +269,8 @@ export default function App({ pdfjs, createOcrWorker }) {
     });
     observer.observe(stage.current);
     return () => observer.disconnect();
-  }, [slide, pages.length > 0]);
+    // The stage unmounts while the assembly view is open; re-attach on return.
+  }, [slide, pages.length > 0, assemblyView]);
   useEffect(() => {
     const beforeUnload = (e) => {
       if (dirty || assemblyDirty || problemSession.current) {
@@ -539,6 +541,9 @@ export default function App({ pdfjs, createOcrWorker }) {
     }
   };
   const reset = () => {
+    if (operation.current) return;
+    // Results of any async work started before the reset are dropped.
+    workGeneration.current++;
     problemSession.current = null;
     setPreviewsCollapsed(false);
     setAssembly([]);
@@ -724,6 +729,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   };
   const finishCapture = async (current) => {
     if (current.rect.width < 0.003 || current.rect.height < 0.003) return;
+    const generation = workGeneration.current;
     operation.current = true;
     setBusyInline(true);
     setBusy("선택한 영역을 캡처하는 중…");
@@ -731,6 +737,8 @@ export default function App({ pdfjs, createOcrWorker }) {
       const imageReady = captureRegion(current.page, current.rect);
       const copied = copyCaptureImage(imageReady);
       const image = await imageReady;
+      // Never pin an image of a document that was closed meanwhile.
+      if (generation !== workGeneration.current) return;
       copied.then((result) => reportCaptureCopy(result, true));
       if (current.problem) {
         const size = rotatedSize(current.page);
@@ -988,14 +996,26 @@ export default function App({ pdfjs, createOcrWorker }) {
       setModal({ type: "text", anchor: p, pageId: reference.id });
       return;
     }
+    // Redaction boxes are protected from the eraser and the select tool: a
+    // stray click must not silently re-expose hidden text in the next save.
+    // They are removed only with undo or the explicit page clear.
     const hit = [...reference.annotations]
       .reverse()
-      .find((a) => annotationHit(a, p, reference));
+      .find((a) => a.type !== "redact" && annotationHit(a, p, reference));
+    const protectedRedaction =
+      !hit &&
+      reference.annotations.some(
+        (a) => a.type === "redact" && annotationHit(a, p, reference),
+      );
     if (tool === "erase") {
       if (hit)
         updateAnnotations(
           reference.annotations.filter((a) => a.id !== hit.id),
           reference.id,
+        );
+      else if (protectedRedaction)
+        notify(
+          "가림 영역은 지우개로 지울 수 없습니다. 실행 취소 또는 현재 페이지 편집 지우기를 사용해 주세요.",
         );
       return;
     }
@@ -1006,7 +1026,9 @@ export default function App({ pdfjs, createOcrWorker }) {
         setDraft(hit);
       } else
         notify(
-          "이 앱에서 추가한 필기·도형·텍스트·서명을 드래그해 이동할 수 있습니다.",
+          protectedRedaction
+            ? "가림 영역은 실수로 옮겨지지 않도록 이동할 수 없습니다."
+            : "이 앱에서 추가한 필기·도형·텍스트·서명을 드래그해 이동할 수 있습니다.",
         );
       return;
     }
@@ -1495,7 +1517,7 @@ export default function App({ pdfjs, createOcrWorker }) {
               href="#"
               onClick={(e) => {
                 e.preventDefault();
-                if (!pages.length) return;
+                if (!pages.length || busy || operation.current) return;
                 setModal({ type: "new" });
               }}
               aria-label="HS PDF 작업실"
@@ -1634,7 +1656,27 @@ export default function App({ pdfjs, createOcrWorker }) {
                 setAssembly(next);
                 setAssemblyDirty(true);
               }}
-              onSave={(newPages, name) => save(null, newPages, name, true)}
+              onSave={(newPages, name) => {
+                // Entries whose page was deleted from the document keep an old
+                // snapshot, so later redactions (e.g. bulk "all pages") never
+                // reached them. Ask before exporting them next to redactions.
+                const current = new Set(pages.map((p) => p.id));
+                const orphans = assembly.filter(
+                  (entry) => !current.has(entry.page.id),
+                ).length;
+                if (
+                  orphans &&
+                  pages.some((p) => p.annotations.some((a) => a.type === "redact"))
+                )
+                  setModal({
+                    type: "assembly-orphans",
+                    title: "삭제된 페이지가 포함되어 있습니다",
+                    pages: newPages,
+                    name,
+                    orphans,
+                  });
+                else save(null, newPages, name, true);
+              }}
             />
           ) : (
             <>
@@ -2565,6 +2607,36 @@ export default function App({ pdfjs, createOcrWorker }) {
           wide={modal.type === "signature" || modal.type === "ocr-review"}
           columns={modal.type === "redact"}
         >
+          {modal.type === "assembly-orphans" && (
+            <>
+              <p className="modal-description">
+                새 문서에 원래 문서에서 삭제한 페이지 {modal.orphans}개가
+                있습니다. 이 페이지에는 삭제 이후 적용한 개인정보 가리기가
+                반영되지 않았습니다.
+              </p>
+              <p className="modal-footnote">
+                “원본에서 삭제됨” 표시가 있는 페이지를 확인하거나 제거한 뒤
+                저장하는 것을 권장합니다.
+              </p>
+              <div className="modal-footer">
+                <ToolButton
+                  className="primary"
+                  data-default-focus
+                  disabled={!!busy}
+                  onClick={closeModal}
+                >
+                  돌아가서 확인
+                </ToolButton>
+                <ToolButton
+                  icon={FileArrowDown}
+                  disabled={!!busy}
+                  onClick={() => save(null, modal.pages, modal.name, true)}
+                >
+                  그대로 저장
+                </ToolButton>
+              </div>
+            </>
+          )}
           {modal.type === "problem-exit" && (
             <>
               <p className="modal-description">
@@ -3166,7 +3238,12 @@ export default function App({ pdfjs, createOcrWorker }) {
               </p>
               <div className="modal-footer">
                 <ToolButton onClick={closeModal}>취소</ToolButton>
-                <ToolButton icon={FilePlus} className="primary" onClick={reset}>
+                <ToolButton
+                  icon={FilePlus}
+                  className="primary"
+                  disabled={!!busy}
+                  onClick={reset}
+                >
                   새 작업 시작
                 </ToolButton>
               </div>
