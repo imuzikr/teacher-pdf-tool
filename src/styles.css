@@ -2230,12 +2230,6 @@ input[type="radio"] {
 .laser-active .page-canvas {
   cursor: none;
 }
-.fullscreen-presentation .slide-toolbar {
-  justify-content: center;
-}
-.fullscreen-presentation .document-stage {
-  padding: 12px 18px;
-}
 
 .capture-selection {
   position: absolute;

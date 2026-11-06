@@ -1097,10 +1097,14 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       editedCount,
       "laser is transient and adds no PDF annotation",
     );
-    await click("프레젠테이션");
-    assert.ok(document.querySelector(".fullscreen-presentation"));
-    assert.equal(document.querySelector(".document-heading"), null);
-    assert.equal(document.querySelector(".slide-options"), null);
+    assert.equal(
+      [...document.querySelectorAll("button")].some((b) =>
+        b.textContent.includes("프레젠테이션"),
+      ),
+      false,
+      "presentation mode is removed; slide mode covers it",
+    );
+    await click("이동");
     assert.equal(document.querySelector(".laser-overlay"), null);
     const pageBefore = document.querySelector(".slide-page-number").textContent;
     await act(async () =>
@@ -1133,16 +1137,7 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       ),
     );
     assert.ok(document.querySelector(".laser-active"));
-    await click("슬라이드 재생으로 돌아가기");
-    assert.ok(document.querySelector(".presentation-mode"));
-    assert.equal(document.querySelector(".fullscreen-presentation"), null);
-    assert.ok(document.querySelector(".slide-options"));
-    assert.equal(
-      document.querySelector(".slide-page-number").textContent,
-      pageBefore,
-    );
     assert.equal(document.querySelector("[role=dialog]"), null);
-    await click("프레젠테이션");
     await act(async () =>
       document.dispatchEvent(
         new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
@@ -1370,13 +1365,6 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
     assert.ok(
       restoredShapePixel[1] > restoredShapePixel[0] + 40,
       "undo restores erased shape",
-    );
-    await click("프레젠테이션");
-    await click("슬라이드 재생으로 돌아가기");
-    assert.equal(
-      document.querySelector("[role=dialog]"),
-      null,
-      "returning preserves edits without ending the session",
     );
     await click("종료");
     assert.match(

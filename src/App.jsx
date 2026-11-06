@@ -161,7 +161,6 @@ export default function App({ pdfjs, createOcrWorker }) {
   const [previewsCollapsed, setPreviewsCollapsed] = useState(false);
   const [slide, setSlide] = useState(false);
   const [recorderOpen, setRecorderOpen] = useState(false);
-  const [presenting, setPresenting] = useState(false);
   const [captures, setCaptures] = useState([]);
   // F3 temporarily hides pinned captures without discarding them or their writing.
   const [capturesHidden, setCapturesHidden] = useState(false);
@@ -579,7 +578,6 @@ export default function App({ pdfjs, createOcrWorker }) {
   const finishSlide = () => {
     slideSession.current = null;
     setSlide(false);
-    setPresenting(false);
     setCaptures([]);
     setPracticePairs({});
     setCaptureRect(null);
@@ -620,7 +618,6 @@ export default function App({ pdfjs, createOcrWorker }) {
     setPracticePairs(session.practicePairs);
     setCaptures(session.captures);
     setZoom(session.zoom);
-    setPresenting(session.presenting);
     setTool("move");
     setDraft(null);
     setInkPreview({});
@@ -679,7 +676,7 @@ export default function App({ pdfjs, createOcrWorker }) {
     }
     finishSlide();
   };
-  const startSlide = (mode) => {
+  const startSlide = () => {
     if (!pages.length) return;
     if (!slideSession.current)
       slideSession.current = {
@@ -691,7 +688,6 @@ export default function App({ pdfjs, createOcrWorker }) {
         selected: new Set(selected),
         sourceIds: new Set(sources.current.keys()),
       };
-    setPresenting(mode === "present");
     setLaserPoint(null);
     setLaserTrail([]);
     setSlide(true);
@@ -713,7 +709,6 @@ export default function App({ pdfjs, createOcrWorker }) {
     setInkPreview({});
     setCaptureRect(null);
     pointer.current = null;
-    setPresenting(false);
   };
   const reportCaptureCopy = (result, automatic = false) =>
     notify(
@@ -762,7 +757,6 @@ export default function App({ pdfjs, createOcrWorker }) {
             practicePairs,
             captures,
             zoom,
-            presenting,
             sourceId: source.id,
             image,
           };
@@ -777,7 +771,6 @@ export default function App({ pdfjs, createOcrWorker }) {
           setCaptures([]);
           setDirty(false);
           setZoom(100);
-          setPresenting(false);
           chooseTool("pen");
           return;
         } catch (error) {
@@ -1336,7 +1329,6 @@ export default function App({ pdfjs, createOcrWorker }) {
         setTool((old) => (old === "laser" ? "move" : "laser"));
         return;
       }
-      if (presenting) return;
       const keys = {
         q: "move",
         v: "select",
@@ -1364,7 +1356,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   );
   const currentSize = page ? rotatedSize(page) : { width: 595, height: 842 };
   const practiceReference =
-    slide && !presenting && practicePairs[page?.id]
+    slide && practicePairs[page?.id]
       ? pages.find((p) => p.id === practicePairs[page.id])
       : null;
   const practicePaneWidth = Math.max(120, (viewerSize.width - 84) / 2);
@@ -1472,7 +1464,7 @@ export default function App({ pdfjs, createOcrWorker }) {
   return (
     <div
       ref={workspace}
-      className={`app ${slide ? "presentation-mode" : ""} ${presenting ? "fullscreen-presentation" : ""} ${slide && tool === "laser" ? "laser-mode" : ""}`}
+      className={`app ${slide ? "presentation-mode" : ""} ${slide && tool === "laser" ? "laser-mode" : ""}`}
       onDragOver={(e) => {
         if (Array.from(e.dataTransfer.types).includes("Files")) {
           e.preventDefault();
@@ -1621,7 +1613,7 @@ export default function App({ pdfjs, createOcrWorker }) {
               <ToolButton
                 icon={Presentation}
                 disabled={!page || !!busy}
-                onClick={() => startSlide("slide")}
+                onClick={() => startSlide()}
               >
                 슬라이드 재생
               </ToolButton>
@@ -1833,7 +1825,7 @@ export default function App({ pdfjs, createOcrWorker }) {
               )}
 
               <section className="document-area" aria-label="문서 작업 공간">
-                {page && !presenting && (
+                {page && (
                   <div
                     className={`document-heading ${slide ? "slide-heading" : ""}`}
                   >
@@ -1920,13 +1912,6 @@ export default function App({ pdfjs, createOcrWorker }) {
                               {drawingOptions()}
                             </div>
                           )}
-                          <button
-                            className="text-button"
-                            onClick={() => startSlide("present")}
-                            disabled={!!busy}
-                          >
-                            <Presentation size={16} /> 프레젠테이션
-                          </button>
                           {["pen", "highlight", "capture"].includes(tool) && (
                             <button
                               className="text-button"
@@ -2214,29 +2199,27 @@ export default function App({ pdfjs, createOcrWorker }) {
 
       {slide ? (
         <>
-          {!presenting && (
-            <div className="slide-options">
-              <span>
-                {tool === "problem-capture"
-                  ? "문제로 사용할 영역을 드래그하세요. 캡처한 문제와 필기용 페이지가 두 쪽으로 열립니다."
-                  : tool === "capture"
-                    ? "캡처할 영역을 드래그하세요. 캡처는 페이지를 넘겨도 화면 위에 유지됩니다."
-                    : tool === "laser"
-                      ? "마우스를 움직여 가리키세요. L 키로 레이저 포인터를 켜고 끌 수 있어요."
-                      : tool === "move"
-                        ? "드래그로 화면을 이동하세요. 방향키로 페이지를 넘길 수 있어요."
-                        : tool === "select"
-                          ? "추가한 필기·도형·텍스트·서명을 드래그해 이동하세요."
-                          : tool === "erase"
-                            ? "지울 필기·도형·텍스트를 클릭하세요."
-                            : tool === "shape"
-                              ? "도형을 선택하고 문서 위에서 드래그하세요."
-                              : "문서 위에 바로 필기하세요."}
-              </span>
-              {["pen", "highlight", "text", "shape"].includes(tool) &&
-                drawingOptions()}
-            </div>
-          )}
+          <div className="slide-options">
+            <span>
+              {tool === "problem-capture"
+                ? "문제로 사용할 영역을 드래그하세요. 캡처한 문제와 필기용 페이지가 두 쪽으로 열립니다."
+                : tool === "capture"
+                  ? "캡처할 영역을 드래그하세요. 캡처는 페이지를 넘겨도 화면 위에 유지됩니다."
+                  : tool === "laser"
+                    ? "마우스를 움직여 가리키세요. L 키로 레이저 포인터를 켜고 끌 수 있어요."
+                    : tool === "move"
+                      ? "드래그로 화면을 이동하세요. 방향키로 페이지를 넘길 수 있어요."
+                      : tool === "select"
+                        ? "추가한 필기·도형·텍스트·서명을 드래그해 이동하세요."
+                        : tool === "erase"
+                          ? "지울 필기·도형·텍스트를 클릭하세요."
+                          : tool === "shape"
+                            ? "도형을 선택하고 문서 위에서 드래그하세요."
+                            : "문서 위에 바로 필기하세요."}
+            </span>
+            {["pen", "highlight", "text", "shape"].includes(tool) &&
+              drawingOptions()}
+          </div>
           <footer className="slide-toolbar">
             <div className="slide-toolgroup">
               <ToolButton
@@ -2259,70 +2242,68 @@ export default function App({ pdfjs, createOcrWorker }) {
                 다음
               </ToolButton>
             </div>
-            {!presenting && (
-              <div className="slide-toolgroup">
-                {[
-                  [Hand, "이동", "move"],
-                  [Cursor, "선택", "select"],
-                  [PencilSimple, "펜", "pen"],
-                  [Highlighter, "형광펜", "highlight"],
-                  [Shapes, "도형", "shape"],
-                  [TextT, "텍스트", "text"],
-                  [Eraser, "지우개", "erase"],
-                ].map(([Icon, label, value]) =>
-                  value === "shape" ? (
-                    <div className="shape-picker" key={value}>
-                      <ToolButton
-                        icon={Icon}
-                        active={tool === value}
-                        aria-haspopup="menu"
-                        aria-expanded={shapeMenu}
-                        onClick={() => {
-                          chooseTool(value);
-                          setShapeMenu(!shapeMenu);
-                        }}
-                      >
-                        {label}
-                      </ToolButton>
-                      {shapeMenu && (
-                        <div
-                          className="shape-menu"
-                          role="menu"
-                          aria-label="도형 종류"
-                          onKeyDown={(e) => {
-                            e.stopPropagation();
-                            if (e.key === "Escape") setShapeMenu(false);
-                          }}
-                        >
-                          {shapeOptions.map(([kind, title]) => (
-                            <button
-                              key={kind}
-                              role="menuitemradio"
-                              aria-checked={shapeKind === kind}
-                              onClick={() => {
-                                setShapeKind(kind);
-                                setShapeMenu(false);
-                              }}
-                            >
-                              {title}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
+            <div className="slide-toolgroup">
+              {[
+                [Hand, "이동", "move"],
+                [Cursor, "선택", "select"],
+                [PencilSimple, "펜", "pen"],
+                [Highlighter, "형광펜", "highlight"],
+                [Shapes, "도형", "shape"],
+                [TextT, "텍스트", "text"],
+                [Eraser, "지우개", "erase"],
+              ].map(([Icon, label, value]) =>
+                value === "shape" ? (
+                  <div className="shape-picker" key={value}>
                     <ToolButton
-                      key={value}
                       icon={Icon}
                       active={tool === value}
-                      onClick={() => chooseTool(value)}
+                      aria-haspopup="menu"
+                      aria-expanded={shapeMenu}
+                      onClick={() => {
+                        chooseTool(value);
+                        setShapeMenu(!shapeMenu);
+                      }}
                     >
                       {label}
                     </ToolButton>
-                  ),
-                )}
-              </div>
-            )}
+                    {shapeMenu && (
+                      <div
+                        className="shape-menu"
+                        role="menu"
+                        aria-label="도형 종류"
+                        onKeyDown={(e) => {
+                          e.stopPropagation();
+                          if (e.key === "Escape") setShapeMenu(false);
+                        }}
+                      >
+                        {shapeOptions.map(([kind, title]) => (
+                          <button
+                            key={kind}
+                            role="menuitemradio"
+                            aria-checked={shapeKind === kind}
+                            onClick={() => {
+                              setShapeKind(kind);
+                              setShapeMenu(false);
+                            }}
+                          >
+                            {title}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <ToolButton
+                    key={value}
+                    icon={Icon}
+                    active={tool === value}
+                    onClick={() => chooseTool(value)}
+                  >
+                    {label}
+                  </ToolButton>
+                ),
+              )}
+            </div>
             <div className="slide-toolgroup">
               <ToolButton
                 icon={Cursor}
@@ -2336,65 +2317,51 @@ export default function App({ pdfjs, createOcrWorker }) {
                 레이저 포인터
               </ToolButton>
             </div>
-            {!presenting && (
-              <div className="slide-toolgroup">
-                <ToolButton
-                  icon={ArrowUUpLeft}
-                  disabled={!past.current.length}
-                  onClick={undo}
-                >
-                  취소
-                </ToolButton>
-                <ToolButton
-                  icon={ArrowUUpRight}
-                  disabled={!future.current.length}
-                  onClick={redo}
-                >
-                  다시
-                </ToolButton>
-                <ToolButton
-                  icon={Trash}
-                  disabled={!editingPage?.annotations.length}
-                  onClick={() => setModal({ type: "clear" })}
-                >
-                  쪽 지우기
-                </ToolButton>
-              </div>
-            )}
             <div className="slide-toolgroup">
-              {!presenting && (
-                <>
-                  <ToolButton
-                    icon={CornersOut}
-                    active={tool === "capture"}
-                    disabled={!!busy}
-                    onClick={() => {
-                      setTool((old) =>
-                        old === "capture" ? "move" : "capture",
-                      );
-                      setDraft(null);
-                      setCaptureRect(null);
-                      pointer.current = null;
-                    }}
-                  >
-                    캡처 모드
-                  </ToolButton>
-                  <ToolButton
-                    icon={VideoCamera}
-                    onClick={() => setRecorderOpen(true)}
-                  >
-                    동영상 녹화
-                  </ToolButton>
-                </>
-              )}
-              {!presenting && !problemSession.current && (
-                <ToolButton
-                  icon={Presentation}
-                  onClick={() => startSlide("present")}
-                >
-                  프레젠테이션
-                </ToolButton>
-              )}
+              <ToolButton
+                icon={ArrowUUpLeft}
+                disabled={!past.current.length}
+                onClick={undo}
+              >
+                취소
+              </ToolButton>
+              <ToolButton
+                icon={ArrowUUpRight}
+                disabled={!future.current.length}
+                onClick={redo}
+              >
+                다시
+              </ToolButton>
+              <ToolButton
+                icon={Trash}
+                disabled={!editingPage?.annotations.length}
+                onClick={() => setModal({ type: "clear" })}
+              >
+                쪽 지우기
+              </ToolButton>
+            </div>
+            <div className="slide-toolgroup">
+              <ToolButton
+                icon={CornersOut}
+                active={tool === "capture"}
+                disabled={!!busy}
+                onClick={() => {
+                  setTool((old) =>
+                    old === "capture" ? "move" : "capture",
+                  );
+                  setDraft(null);
+                  setCaptureRect(null);
+                  pointer.current = null;
+                }}
+              >
+                캡처 모드
+              </ToolButton>
+              <ToolButton
+                icon={VideoCamera}
+                onClick={() => setRecorderOpen(true)}
+              >
+                동영상 녹화
+              </ToolButton>
               {problemSession.current && (
                 <ToolButton
                   icon={Copy}
@@ -2407,7 +2374,7 @@ export default function App({ pdfjs, createOcrWorker }) {
                   문제 이미지 복사
                 </ToolButton>
               )}
-              {!presenting && !problemSession.current && (
+              {!problemSession.current && (
                 <ToolButton
                   icon={FilePlus}
                   disabled={!!busy}
@@ -2415,23 +2382,6 @@ export default function App({ pdfjs, createOcrWorker }) {
                   onClick={startProblem}
                 >
                   문제 풀이
-                </ToolButton>
-              )}
-              {presenting && (
-                <ToolButton
-                  icon={Presentation}
-                  disabled={!!busy}
-                  onClick={() => {
-                    setPresenting(false);
-                    setTool("move");
-                    setDraft(null);
-                    setCaptureRect(null);
-                    setLaserPoint(null);
-                    setLaserTrail([]);
-                    pointer.current = null;
-                  }}
-                >
-                  슬라이드 재생으로 돌아가기
                 </ToolButton>
               )}
               <ToolButton
@@ -2442,14 +2392,12 @@ export default function App({ pdfjs, createOcrWorker }) {
                 종료
               </ToolButton>
             </div>
-            {!presenting && (
-              <button
-                className="shortcut-link"
-                onClick={() => setModal({ type: "shortcuts" })}
-              >
-                <Keyboard size={15} /> 단축키 보기
-              </button>
-            )}
+            <button
+              className="shortcut-link"
+              onClick={() => setModal({ type: "shortcuts" })}
+            >
+              <Keyboard size={15} /> 단축키 보기
+            </button>
           </footer>
         </>
       ) : (
