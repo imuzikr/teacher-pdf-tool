@@ -163,7 +163,7 @@ export function PageCanvas({
       await task.promise;
       // Thumbnails render once; drop their cached page resources. The main
       // view keeps them for fast re-rendering while zooming.
-      if (thumbnail) original.cleanup();
+      if (thumbnail) original.cleanup?.();
       if (disposed || !base.current) return;
       // Keep the displayed bitmap while rendering; swap only complete frames.
       base.current.width = rendered.width;

@@ -264,7 +264,7 @@ export async function renderPage(
   } finally {
     // One-off high-resolution renders (export, capture, OCR) otherwise leave
     // their decoded resources cached on the page for the life of the document.
-    original.cleanup();
+    original.cleanup?.();
   }
   return canvas;
 }
@@ -350,7 +350,7 @@ export async function extractText(pages) {
     }
     const original = await page.source.document.getPage(page.index + 1);
     const content = await original.getTextContent();
-    original.cleanup();
+    original.cleanup?.();
     sections.push(
       content.items
         .map((item) => item.str + (item.hasEOL ? "\n" : " "))
