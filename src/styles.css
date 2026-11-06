@@ -2258,6 +2258,9 @@ input[type="radio"] {
   overflow: hidden;
   max-width: calc(100vw - 24px);
 }
+.pinned-capture[hidden] {
+  display: none;
+}
 .capture-handle {
   display: flex;
   align-items: center;

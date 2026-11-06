@@ -14,6 +14,7 @@ export default function PinnedCapture({
   straightHighlight,
   onLaserMove,
   onLaserLeave,
+  hidden = false,
 }) {
   const interaction = useRef(null);
   const drawing = useRef(null);
@@ -22,8 +23,9 @@ export default function PinnedCapture({
   const strokes = capture.strokes || [];
   useEffect(() => {
     drawing.current = null;
+    interaction.current = null;
     setDraft(null);
-  }, [tool]);
+  }, [tool, hidden]);
   const resize = (factor) =>
     onChange({
       ...capture,
@@ -133,6 +135,9 @@ export default function PinnedCapture({
     <section
       className="pinned-capture"
       aria-label="고정된 캡처"
+      hidden={hidden}
+      aria-hidden={hidden || undefined}
+      inert={hidden || undefined}
       style={{ left: capture.x, top: capture.y, width: capture.width }}
     >
       <div

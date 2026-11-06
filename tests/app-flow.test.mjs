@@ -813,6 +813,27 @@ test("React flow: import, select, rotate, delete/undo, copy, redact, and save a 
       beforeManualCopy + 1,
       "manual copy retries successfully",
     );
+    const pressF3 = async () => {
+      const event = new window.KeyboardEvent("keydown", {
+        key: "F3",
+        bubbles: true,
+        cancelable: true,
+      });
+      await act(async () => document.dispatchEvent(event));
+      return event;
+    };
+    const hiddenBy = await pressF3();
+    assert.ok(hiddenBy.defaultPrevented, "F3 does not open the browser search");
+    assert.ok(
+      document.querySelector(".pinned-capture").hidden,
+      "F3 hides the pinned capture without removing it",
+    );
+    await pressF3();
+    assert.equal(
+      document.querySelector(".pinned-capture").hidden,
+      false,
+      "F3 shows the capture again",
+    );
     await click("캡처 닫기");
     assert.equal(document.querySelector(".pinned-capture"), null);
     clipboardBlocked = true;

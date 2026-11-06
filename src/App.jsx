@@ -162,6 +162,11 @@ export default function App({ pdfjs, createOcrWorker }) {
   const [recorderOpen, setRecorderOpen] = useState(false);
   const [presenting, setPresenting] = useState(false);
   const [captures, setCaptures] = useState([]);
+  // F3 temporarily hides pinned captures without discarding them or their writing.
+  const [capturesHidden, setCapturesHidden] = useState(false);
+  useEffect(() => {
+    if (!captures.length) setCapturesHidden(false);
+  }, [captures.length]);
   const [captureRect, setCaptureRect] = useState(null);
   const [practicePairs, setPracticePairs] = useState({});
   const slideSession = useRef(null);
@@ -770,6 +775,7 @@ export default function App({ pdfjs, createOcrWorker }) {
           throw error;
         }
       }
+      setCapturesHidden(false);
       setCaptures((old) => [
         ...old,
         {
@@ -1248,6 +1254,32 @@ export default function App({ pdfjs, createOcrWorker }) {
   };
   useEffect(() => {
     const key = (e) => {
+      // Handled before the input/slide checks: captures also show in the normal
+      // view, and F3 never types text. preventDefault stops the browser's
+      // "find next" (Chrome/Edge/Firefox) from grabbing the key.
+      if (
+        e.key === "F3" &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !e.repeat &&
+        captures.length &&
+        tool !== "problem-capture" &&
+        !modal &&
+        !document.querySelector('[role="dialog"]')
+      ) {
+        e.preventDefault();
+        const hide = !capturesHidden;
+        if (hide && document.activeElement?.closest?.(".pinned-capture"))
+          document.activeElement.blur();
+        setCapturesHidden(hide);
+        notify(
+          hide
+            ? "캡처를 잠시 숨겼습니다. F3을 누르면 다시 보입니다."
+            : "캡처를 다시 표시했습니다.",
+        );
+        return;
+      }
       if (
         modal ||
         document.querySelector('[role="dialog"]') ||
@@ -2431,6 +2463,7 @@ export default function App({ pdfjs, createOcrWorker }) {
           <PinnedCapture
             key={capture.id}
             capture={capture}
+            hidden={capturesHidden}
             tool={tool}
             color={color}
             size={size}
